@@ -82,7 +82,9 @@ export function SetupCard({
       <ol className="setup-steps">
         <li>
           <div className="setup-step-title">Install opencode V2</div>
-          <p>Follow the installer for your platform, then run `opencode` once to finish setup.</p>
+          <p>
+            Follow the installer for your platform, then run <code>opencode</code> once to finish setup.
+          </p>
           <button className="btn-tonal compact" onClick={() => void browser.tabs.create({ url: 'https://opencode.ai/docs' })}>
             open opencode docs
           </button>
@@ -107,8 +109,8 @@ export function SetupCard({
         <li>
           <div className="setup-step-title">Restart opencode and reconnect</div>
           <p>
-            Run <code>opencode service restart</code> (or restart the TUI / <code>opencode serve</code>), then reconnect
-            here.
+            Run <code>opencode service restart</code> (or restart the TUI or <code>opencode serve</code>), then
+            reconnect here.
           </p>
           <button className="primary compact" onClick={onReconnect}>
             reconnect bridge
