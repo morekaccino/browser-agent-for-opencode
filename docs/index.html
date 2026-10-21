@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Browser Agent for opencode</title>
+    <meta
+      name="description"
+      content="A Chrome side panel that lets your local opencode agent inspect and operate the browser."
+    />
+    <link rel="icon" href="assets/icon.png" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <div class="wrap nav">
+        <a class="brand" href="index.html">
+          <img src="assets/icon.png" alt="" />
+          Browser Agent
+        </a>
+        <nav class="nav-links" aria-label="Main">
+          <a href="index.html">Overview</a>
+          <a href="setup.html">Setup</a>
+          <a href="privacy.html">Privacy</a>
+          <a href="https://github.com/morekaccino/browser-agent-for-opencode">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section class="hero">
+        <div>
+          <span class="pill"><span class="dot"></span> independent · local-first</span>
+          <h1>Your browser,<br />with an agent.</h1>
+          <p>
+            A Chrome side panel that connects to <a href="https://opencode.ai">opencode</a> running on your computer.
+            Ask it to read the page, click, type, navigate, inspect the console, or run a scheduled task.
+          </p>
+          <div class="actions">
+            <a class="button" href="setup.html">Setup guide</a>
+            <a class="button secondary" href="privacy.html">Privacy policy</a>
+          </div>
+          <p style="font-size: 13px; margin-top: 12px">
+            Chrome Web Store listing coming soon. The setup guide covers the current build.
+          </p>
+        </div>
+        <div class="hero-art">
+          <img src="assets/icon.png" alt="Browser Agent icon" />
+        </div>
+      </section>
+
+      <section>
+        <h2>What it does</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>See the page</h3>
+            <p>Page snapshots with stable element references, plus console output and screenshots when you need them.</p>
+          </div>
+          <div class="card">
+            <h3>Act on it</h3>
+            <p>Click, hover, type, select, scroll, press keys, wait for elements, and manage tabs.</p>
+          </div>
+          <div class="card">
+            <h3>Run on a schedule</h3>
+            <p>Save a self-contained instruction as a workflow. Runs are read-only unless you explicitly allow submissions.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>How it works</h2>
+        <p>
+          The extension is the browser side. It talks to opencode V2 on your machine through a loopback bridge; opencode
+          does the reasoning and tool calls. There is no developer server, no account, and no cloud relay.
+        </p>
+        <div class="note">
+          Your prompts and the page context you include go to your local opencode service, then to the AI model provider
+          you configured in opencode. Their privacy policy applies to that request.
+        </div>
+      </section>
+
+      <section>
+        <h2>Screenshots</h2>
+        <div class="grid">
+          <div class="card">
+            <img src="assets/screenshot-chat.png" alt="Chat with the agent in the Chrome side panel" style="width: 100%; border-radius: 10px; display: block; margin-bottom: 12px" />
+            <h3>Work with the page</h3>
+            <p>Ask a question, then let the agent click, type, and navigate.</p>
+          </div>
+          <div class="card">
+            <img src="assets/screenshot-privacy.png" alt="First-run privacy disclosure" style="width: 100%; border-radius: 10px; display: block; margin-bottom: 12px" />
+            <h3>Informed by default</h3>
+            <p>The first run explains exactly what can be sent and where it goes.</p>
+          </div>
+          <div class="card">
+            <img src="assets/screenshot-workflows.png" alt="Scheduled workflows" style="width: 100%; border-radius: 10px; display: block; margin-bottom: 12px" />
+            <h3>Read-only workflows</h3>
+            <p>Scheduled runs are read-only unless you opt in to submissions per workflow.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Requirements</h2>
+        <ul>
+          <li>Chrome 114 or newer.</li>
+          <li>opencode V2 installed and running on the same computer.</li>
+          <li>The browser bridge plugin installed in opencode. The extension’s setup screen can download it.</li>
+          <li>A model provider configured in opencode (hosted or local).</li>
+        </ul>
+        <p><a href="setup.html">Read the setup guide →</a></p>
+      </section>
+
+      <section>
+        <h2>Privacy and safety</h2>
+        <p>
+          The extension has no analytics, ads, or data sale. It stores settings, workflows, and local connection
+          credentials in Chrome’s local storage. You can clear that data from the extension settings or by uninstalling
+          it.
+        </p>
+        <p>
+          The agent can read and change pages you ask it to operate on, and can run JavaScript through Chrome’s debugger.
+          Only use it on accounts and pages you are allowed to automate.
+        </p>
+        <p><a href="privacy.html">Read the full privacy policy →</a></p>
+      </section>
+
+      <section>
+        <h2>Independent project</h2>
+        <p>
+          Browser Agent for opencode is not affiliated with, endorsed by, or sponsored by Anomaly Innovations, Inc., the
+          opencode project, or Google. opencode and Chrome are trademarks of their respective owners.
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        <span>© 2026 Mohamad Kazemi · MIT licensed</span>
+        <span>
+          <a href="setup.html">Setup</a> ·
+          <a href="privacy.html">Privacy</a> ·
+          <a href="https://github.com/morekaccino/browser-agent-for-opencode">GitHub</a> ·
+          <a href="https://github.com/morekaccino/browser-agent-for-opencode/issues">Support</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>

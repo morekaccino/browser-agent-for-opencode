@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Setup — Browser Agent for opencode</title>
+    <meta name="description" content="Set up Browser Agent for opencode." />
+    <link rel="icon" href="assets/icon.png" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <div class="wrap nav">
+        <a class="brand" href="index.html"><img src="assets/icon.png" alt="" /> Browser Agent</a>
+        <nav class="nav-links" aria-label="Main">
+          <a href="index.html">Overview</a>
+          <a href="setup.html">Setup</a>
+          <a href="privacy.html">Privacy</a>
+          <a href="https://github.com/morekaccino/browser-agent-for-opencode">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="wrap policy">
+      <h1>Setup</h1>
+      <p class="date">About two minutes, once opencode is installed.</p>
+
+      <p>
+        The extension is the browser side. It needs opencode V2 running on the same computer, plus a small browser bridge
+        plugin inside opencode. The side panel can download the plugin for you.
+      </p>
+
+      <h2>1. Install opencode V2</h2>
+      <p>
+        Follow the installer for your platform at
+        <a href="https://opencode.ai/docs">opencode.ai/docs</a>, then run <code>opencode</code> once to finish setup.
+        Configure at least one model provider in opencode.
+      </p>
+
+      <h2>2. Install the extension</h2>
+      <p>
+        Install <strong>Browser Agent for opencode</strong> from the Chrome Web Store when the listing is live. For a
+        local build, open <code>chrome://extensions</code>, enable <strong>Developer mode</strong>, choose
+        <strong>Load unpacked</strong>, and select <code>extension/.output/chrome-mv3</code>.
+      </p>
+
+      <h2>3. Add the browser bridge plugin</h2>
+      <p>
+        Click the toolbar icon to open the side panel. If the bridge is offline, the setup screen offers a
+        <strong>Download bridge plugin</strong> button. Put the downloaded <code>browser-bridge.ts</code> in your
+        opencode plugins directory:
+      </p>
+      <pre><code>Windows:      %USERPROFILE%\.config\opencode\plugins\
+macOS/Linux:  ~/.config/opencode/plugins/</code></pre>
+      <p>
+        If you use a custom <code>XDG_CONFIG_HOME</code>, use
+        <code>$XDG_CONFIG_HOME/opencode/plugins/</code> instead. You can also copy the file from
+        <code>plugin/browser-bridge.ts</code> in the source repository.
+      </p>
+
+      <h2>4. Restart opencode and reconnect</h2>
+      <pre><code>opencode service restart
+
+# or restart the terminal UI / `opencode serve` process</code></pre>
+      <p>
+        Return to the side panel and click <strong>reconnect bridge</strong>. The bridge dot and server dot should turn
+        green. The bridge creates <code>~/.config/opencode/browser-bridge.json</code> on first run.
+      </p>
+
+      <h2>5. First prompt</h2>
+      <p>
+        The first time you open the panel, read the privacy screen and choose whether to include page context with each
+        prompt. Then open a page and try:
+      </p>
+      <pre><code>What's on this page? Then click the first link and tell me where I landed.</code></pre>
+
+      <h2>Troubleshooting</h2>
+
+      <h3>The bridge dot stays orange or red</h3>
+      <ul>
+        <li>Make sure <code>browser-bridge.ts</code> is in the opencode plugins directory.</li>
+        <li>Restart the process that owns the bridge: <code>opencode service restart</code>.</li>
+        <li>Check the port in <code>browser-bridge.json</code> matches the extension’s bridge port (default 8767).</li>
+        <li>
+          If you switched between a development build and the store build, remove <code>allowedExtensionIds</code>
+          from <code>browser-bridge.json</code>, restart opencode, and reconnect.
+        </li>
+      </ul>
+
+      <h3>The server dot stays red</h3>
+      <ul>
+        <li>Run <code>opencode service status</code> and <code>opencode api get /api/info</code>.</li>
+        <li>
+          If you use a foreground <code>opencode serve</code> process that is not the registered shared service, enter
+          its URL and password manually in settings and turn auto-discover off.
+        </li>
+        <li>Use <code>localhost</code>, not <code>127.0.0.1</code>, in the visible server URL.</li>
+      </ul>
+
+      <h3>Chrome shows a yellow “debugging” banner</h3>
+      <p>
+        The extension attaches Chrome’s debugger for console JavaScript, screenshots, iframe input, and file uploads. It
+        detaches when the action finishes unless you selected the persistent debugger console engine. Close DevTools on
+        that tab if the extension cannot attach.
+      </p>
+
+      <h3>A page cannot be scripted</h3>
+      <p>
+        Chrome does not allow extensions to script <code>chrome://</code> pages, the Chrome Web Store, or the PDF viewer.
+        Local <code>file://</code> pages require enabling “Allow access to file URLs” in the extension details.
+      </p>
+
+      <h3>Local network access</h3>
+      <p>
+        Newer Chrome versions gate some loopback requests behind Local Network Access. Use <code>localhost</code> for
+        the opencode server. If Chrome blocks the bridge WebSocket, allow local network access for the extension in its
+        Chrome details page, or check Chrome’s site settings for the extension.
+      </p>
+
+      <h2>Security notes</h2>
+      <ul>
+        <li>The bridge listens on loopback only. It is not exposed to your network.</li>
+        <li>
+          The bridge remembers the first Chrome extension that pairs with it. Other extensions need the bridge token.
+          You can reset pairing by editing <code>browser-bridge.json</code>.
+        </li>
+        <li>Agent-supplied JavaScript runs only through Chrome’s Debugger API.</li>
+        <li>
+          Read the <a href="privacy.html">privacy policy</a> for what is sent to opencode and your model provider.
+        </li>
+      </ul>
+
+      <p><a class="button" href="index.html">Back to overview</a></p>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        <span>© 2026 Mohamad Kazemi · MIT licensed</span>
+        <span>
+          <a href="index.html">Overview</a> · <a href="privacy.html">Privacy</a> ·
+          <a href="https://github.com/morekaccino/browser-agent-for-opencode/issues">Support</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>

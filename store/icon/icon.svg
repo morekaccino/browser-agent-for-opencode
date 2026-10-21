@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="Browser Agent">
+  <defs>
+    <linearGradient id="bg" x1="24" y1="16" x2="108" y2="116" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8A6BE0"/>
+      <stop offset="0.55" stop-color="#6750A4"/>
+      <stop offset="1" stop-color="#44307D"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="48" y1="22" x2="84" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 96x96 artwork, centered in 128x128 with 16px transparent padding -->
+  <rect x="16" y="16" width="96" height="96" rx="24" fill="url(#bg)"/>
+  <rect x="16" y="16" width="96" height="96" rx="24" fill="url(#shine)"/>
+
+  <!-- terminal prompt -->
+  <path d="M39 41 L57 64 L39 87" fill="none" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M64 87 H88" fill="none" stroke="#EADDFF" stroke-width="9" stroke-linecap="round"/>
+
+  <!-- agent spark -->
+  <path d="M93 30 L95.4 36.6 L102 39 L95.4 41.4 L93 48 L90.6 41.4 L84 39 L90.6 36.6 Z" fill="#D0BCFF"/>
+</svg>

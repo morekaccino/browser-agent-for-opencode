@@ -1,0 +1,32 @@
+{
+  "name": "opencode-extension",
+  "private": true,
+  "version": "0.2.0",
+  "description": "Browser Agent for opencode — a Chrome side-panel client for opencode V2",
+  "license": "MIT",
+  "homepage": "https://morekaccino.github.io/browser-agent-for-opencode/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/morekaccino/browser-agent-for-opencode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/morekaccino/browser-agent-for-opencode/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "npm --prefix extension run dev",
+    "build": "npm --prefix extension run build",
+    "compile": "npm --prefix extension run compile",
+    "install-plugin": "node scripts/install-plugin.mjs",
+    "opencode": "node scripts/dev-server.mjs",
+    "browser": "node scripts/launch-browser.mjs",
+    "status": "node scripts/status.mjs",
+    "audit": "node scripts/palette-audit.mjs",
+    "store:build": "npm --prefix extension run build",
+    "store:zip": "npm --prefix extension run zip",
+    "store:verify": "node scripts/verify-package.mjs",
+    "store:package": "npm run store:build && npm run store:zip && npm run store:verify"
+  }
+}
