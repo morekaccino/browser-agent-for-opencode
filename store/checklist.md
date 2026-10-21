@@ -27,7 +27,7 @@
 - [ ] `store/SHA256SUMS.txt` matches the zip.
 - [ ] The verifier reports no secrets, no `eval()`/`new Function()`, no source maps, and no dev files.
 - [ ] The zip contains `manifest.json` at its root.
-- [ ] The zip contains `bridge/browser-bridge.ts` for the setup download.
+- [ ] The zip contains `bridge/browser-bridge.js` for the setup download.
 - [ ] The zip does not contain `store/`, `docs/`, `node_modules/`, `.git/`, or `desktop.ini`.
 
 ## Manual test on a clean profile
@@ -36,7 +36,7 @@
 - [ ] First-run privacy screen appears; the policy link opens.
 - [ ] Accepting the disclosure stores consent and does not show the screen again.
 - [ ] Setup screen appears when opencode is not running.
-- [ ] “Download bridge plugin” saves `browser-bridge.ts`.
+- [ ] "Download bridge plugin" saves `browser-bridge.js`.
 - [ ] With opencode running and the plugin installed, both status dots turn green.
 - [ ] Chat sends a prompt and streams a response.
 - [ ] Page snapshot, click, type, navigate, console read/exec, screenshot, tabs, and downloads work.

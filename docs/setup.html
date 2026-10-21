@@ -47,7 +47,7 @@
       <h2>3. Add the browser bridge plugin</h2>
       <p>
         Click the toolbar icon to open the side panel. If the bridge is offline, the setup screen offers a
-        <strong>Download bridge plugin</strong> button. Put the downloaded <code>browser-bridge.ts</code> in your
+        <strong>Download bridge plugin</strong> button. Put the downloaded <code>browser-bridge.js</code> in your
         opencode plugins directory:
       </p>
       <pre><code>Windows:      %USERPROFILE%\.config\opencode\plugins\
@@ -78,7 +78,7 @@ macOS/Linux:  ~/.config/opencode/plugins/</code></pre>
 
       <h3>The bridge dot stays orange or red</h3>
       <ul>
-        <li>Make sure <code>browser-bridge.ts</code> is in the opencode plugins directory.</li>
+        <li>Make sure <code>browser-bridge.js</code> is in the opencode plugins directory.</li>
         <li>Restart the process that owns the bridge: <code>opencode service restart</code>.</li>
         <li>Check the port in <code>browser-bridge.json</code> matches the extension’s bridge port (default 8767).</li>
         <li>

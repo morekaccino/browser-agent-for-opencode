@@ -5,6 +5,7 @@ extension/.wxt/
 extension/stats.html
 extension/stats-*.json
 extension/public/bridge/browser-bridge.ts
+extension/public/bridge/browser-bridge.js
 
 # local secrets and machine files
 .env

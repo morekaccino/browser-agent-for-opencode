@@ -37,14 +37,22 @@ export function SetupCard({
 
   const downloadPlugin = async () => {
     setDownloadError(null)
+    let objectUrl = ''
     try {
+      // Fetch the packaged plugin and save it as a text blob. Downloading the
+      // extension URL directly makes Chrome treat .ts as MPEG transport stream.
+      const response = await fetch(browser.runtime.getURL('bridge/browser-bridge.js' as any))
+      const text = await response.text()
+      objectUrl = URL.createObjectURL(new Blob([text], { type: 'text/javascript' }))
       await browser.downloads.download({
-        url: browser.runtime.getURL('bridge/browser-bridge.ts' as any),
-        filename: 'browser-bridge.ts',
+        url: objectUrl,
+        filename: 'browser-bridge.js',
         saveAs: true,
       })
     } catch (error) {
       setDownloadError(error instanceof Error ? error.message : String(error))
+    } finally {
+      if (objectUrl) setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
     }
   }
 

@@ -1,7 +1,7 @@
 Browser bridge plugin for opencode
 ==================================
 
-The side panel downloads browser-bridge.ts from this folder. Put that file in
+The side panel downloads browser-bridge.js from this folder. Put that file in
 your opencode plugins directory:
 
   Windows:  %USERPROFILE%\.config\opencode\plugins\

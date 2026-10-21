@@ -100,7 +100,7 @@ for (const file of relativeFiles) {
   if (/(^|[\\/])(node_modules|\.git|\.wxt|store)([\\/]|$)/.test(file)) {
     fail(`development folder in package: ${file}`)
   }
-  if (/(^|[\\/])bridge[\\/]browser-bridge\.ts$/.test(file)) {
+  if (/(^|[\\/])bridge[\\/]browser-bridge\.js$/.test(file)) {
     // Intentionally bundled so users can install the local plugin.
     continue
   }
@@ -171,8 +171,8 @@ if (zips.length > 0) {
     if (forbiddenExt.has(extname(base).toLowerCase())) fail(`forbidden file type in zip: ${file}`)
     if (/(^|\/)(node_modules|\.git|\.wxt|store)\//.test(file)) fail(`development folder in zip: ${file}`)
   }
-  if (!zipFiles.some((file) => file === 'bridge/browser-bridge.ts')) {
-    warn('zip does not contain bridge/browser-bridge.ts (plugin download will not work)')
+  if (!zipFiles.some((file) => file === 'bridge/browser-bridge.js')) {
+    warn('zip does not contain bridge/browser-bridge.js (plugin download will not work)')
   }
 
   sha256 = createHash('sha256').update(readFileSync(zipPath)).digest('hex')

@@ -15,7 +15,7 @@ Until opencode is running on the review machine, the side panel shows a setup sc
 
 1. Install opencode V2 for your platform from https://opencode.ai/docs, then run `opencode` once.
 2. Open the extension's side panel (click the toolbar icon). In the setup screen, click **Download bridge plugin**.
-3. Put the downloaded `browser-bridge.ts` in your opencode plugins folder:
+3. Put the downloaded `browser-bridge.js` in your opencode plugins folder:
    - Windows: `%USERPROFILE%\.config\opencode\plugins\`
    - macOS/Linux: `~/.config/opencode/plugins/`
 4. Restart opencode: `opencode service restart` (or restart the terminal UI / `opencode serve`).

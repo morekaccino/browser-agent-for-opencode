@@ -9,8 +9,8 @@ Quick commands:
 - `npm run zip` — Chrome Web Store zip
 - `npm run compile` — typecheck
 
-The production build includes the bridge plugin at `bridge/browser-bridge.ts`
-so the setup screen can download it. `prebuild`/`prezip` copy it from
+The production build includes the bridge plugin at `bridge/browser-bridge.js`
+so the setup screen can download it. `prebuild`/`prezip` transpile it from
 `../plugin/browser-bridge.ts`; the generated file is gitignored.
 
 This extension targets opencode **V2** (`@opencode/client`). Node.js 20+ is

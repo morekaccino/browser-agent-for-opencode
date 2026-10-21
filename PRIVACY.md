@@ -25,7 +25,7 @@ sponsored by Anomaly Innovations, Inc., the opencode project, or Google.
 This policy applies to:
 
 - the Browser Agent for opencode Chrome extension;
-- the `browser-bridge.ts` plugin that runs inside your opencode service; and
+- the browser bridge plugin (`browser-bridge.js`, built from `plugin/browser-bridge.ts`) that runs inside your opencode service; and
 - the local loopback connection between them.
 
 It does not apply to opencode itself, to a model provider you configure, or to

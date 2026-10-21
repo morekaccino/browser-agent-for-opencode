@@ -13,6 +13,7 @@ stats.html
 stats-*.json
 .wxt
 web-ext.config.ts
+public/bridge/browser-bridge.js
 public/bridge/browser-bridge.ts
 
 # Editor directories and files

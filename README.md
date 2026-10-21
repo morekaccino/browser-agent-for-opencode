@@ -37,7 +37,7 @@ Every browser tool works from any opencode session — panel, TUI, or `opencode 
 
 1. Install **Browser Agent for opencode** from the Chrome Web Store when the listing is live. For a local build, load `extension/.output/chrome-mv3` unpacked.
 2. Click the toolbar icon to open the side panel.
-3. If the bridge is offline, the setup screen offers **Download bridge plugin**. Put `browser-bridge.ts` in:
+3. If the bridge is offline, the setup screen offers **Download bridge plugin**. Put `browser-bridge.js` in:
    - Windows: `%USERPROFILE%\.config\opencode\plugins\`
    - macOS/Linux: `~/.config/opencode/plugins/`
 4. Restart opencode: `opencode service restart`.
