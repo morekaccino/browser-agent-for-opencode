@@ -56,7 +56,7 @@
 - [ ] Privacy policy URL set.
 - [ ] Icon: `store/icon/icon-128.png` (96×96 artwork + 16 px transparent padding).
 - [ ] Small promo: `store/promo/small-440x280.png`.
-- [ ] Screenshots: `01-chat.png`, `02-privacy.png`, `03-workflows.png` (1280×800).
+- [ ] Screenshots: `01-chat.png`, `02-privacy.png`, `03-workflows.png`, `04-settings.png` (1280×800).
 - [ ] Optional: 1400×560 marquee and a 30–60 second unlisted demo video.
 
 ## Privacy practices

@@ -59,6 +59,8 @@ Browser Agent for opencode is not affiliated with, endorsed by, or sponsored by 
 - One-click browser bridge plugin download.
 - Debugger-only JavaScript execution.
 - Read-only scheduled workflows by default.
+- Redesigned Material 3 side panel with light/dark themes, adaptive navigation, and a quieter chat layout.
+- Reworked workflows and settings, with clearer read-only safety and run detail.
 - New original icon, store screenshots, and setup docs.
 
 ## Store assets
@@ -70,8 +72,9 @@ Browser Agent for opencode is not affiliated with, endorsed by, or sponsored by 
 | Screenshot 1 — chat | `store/screenshots/01-chat.png` |
 | Screenshot 2 — privacy disclosure | `store/screenshots/02-privacy.png` |
 | Screenshot 3 — workflows | `store/screenshots/03-workflows.png` |
+| Screenshot 4 — settings and appearance | `store/screenshots/04-settings.png` |
 
-All screenshots are 1280×800 PNGs with square corners and no padding. They show a clean demo profile and a fictional Acme dashboard — no personal tabs, sessions, or account data.
+All screenshots are 1280×800 PNGs with square corners. They show a clean demo profile and a fictional Acme dashboard — no personal tabs, sessions, or account data.
 
 ## Reviewer-facing notes
 

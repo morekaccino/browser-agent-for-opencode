@@ -39,6 +39,8 @@ export const settings = {
   }),
   /** Version of the privacy disclosure the user accepted (0 = not yet). */
   privacyConsentVersion: storage.defineItem<number>('local:privacyConsentVersion', { fallback: 0 }),
+  /** Whether the welcome/connect flow has been completed. */
+  onboardingComplete: storage.defineItem<boolean>('local:onboardingComplete', { fallback: false }),
   /** Prepend a page snapshot to every prompt sent from the panel. */
   includePageContext: storage.defineItem<boolean>('local:includePageContext', { fallback: true }),
   /** Switch the user's view to whichever tab the agent is working on. */
