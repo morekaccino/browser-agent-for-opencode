@@ -4188,3 +4188,23 @@ button.ui-list-item:hover {
   font-size: 10.5px;
   line-height: 15px;
 }
+
+.app-bar-health-button {
+  width: 28px;
+  height: 38px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.app-bar-health-button:hover {
+  background: var(--md-surface-container-high);
+}
+
+.app-bar-health-button .app-bar-health {
+  margin: 0;
+}

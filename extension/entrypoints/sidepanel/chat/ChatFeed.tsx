@@ -130,7 +130,7 @@ function ReasoningGroup({ parts }: { parts: UiPart[] }) {
     <details className="reasoning-group">
       <summary>
         <span className="msym sm" aria-hidden="true">psychology</span>
-        <span>Reasoning</span>
+        <span>Thought</span>
         <span className="reasoning-meta">{parts.length > 1 ? `${parts.length} steps` : '1 step'}</span>
         <span className="msym sm reasoning-chevron" aria-hidden="true">expand_more</span>
       </summary>

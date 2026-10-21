@@ -83,11 +83,18 @@ export function ChatView({
       onTitleClick={mode === 'expanded' ? undefined : () => setSessionSheetOpen(true)}
       actions={
         <>
-          <span
-            className={`app-bar-health${bridge.state === 'connected' && opencode.health === 'ok' ? ' is-ok' : ' is-warn'}`}
+          <button
+            type="button"
+            className="app-bar-health-button"
+            onClick={() => setConnectionOpen(true)}
             title={bridge.state === 'connected' && opencode.health === 'ok' ? 'opencode connected' : 'connection needs attention'}
-            aria-hidden="true"
-          />
+            aria-label="Connection status"
+          >
+            <span
+              className={`app-bar-health${bridge.state === 'connected' && opencode.health === 'ok' ? ' is-ok' : ' is-warn'}`}
+              aria-hidden="true"
+            />
+          </button>
           <IconButton icon="add" label="New session" onClick={() => void opencode.newSession()} />
           <Menu
             label="Chat actions"
