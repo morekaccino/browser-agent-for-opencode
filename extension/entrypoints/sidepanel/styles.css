@@ -1103,10 +1103,54 @@
   box-shadow: var(--elevation-2);
 }
 
-.composer-surface > .ui-progress {
-  margin: 0 4px 4px;
-  border-radius: 999px;
-  overflow: hidden;
+@property --composer-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.composer-surface::before {
+  content: '';
+  position: absolute;
+  inset: -2.5px;
+  padding: 2.5px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--composer-angle),
+    transparent 0deg 205deg,
+    color-mix(in oklab, var(--md-primary) 22%, transparent) 250deg,
+    var(--md-primary) 300deg,
+    var(--md-primary) 332deg,
+    var(--md-tertiary) 348deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-standard) var(--ease-standard);
+}
+
+.composer-surface.is-busy::before {
+  opacity: 1;
+  animation: composer-progress 2.2s linear infinite;
+}
+
+.composer-surface.is-busy,
+.composer-surface.is-busy:focus-within {
+  border-color: transparent;
+}
+
+@keyframes composer-progress {
+  to {
+    --composer-angle: 360deg;
+  }
 }
 
 .composer-input {

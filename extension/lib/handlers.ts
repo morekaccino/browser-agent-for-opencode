@@ -583,12 +583,10 @@ export async function handleRequest(method: string, params: Record<string, any> 
       if (tab.id == null) throw new Error('tab has no id')
       const fullPage = params.full_page === true
 
-      // Chrome's compositor can stall screenshot commands while the window is
-      // minimized/occluded. Bring the tab's window forward first.
+      // Bring a background tab forward if necessary, but never change the
+      // browser window state. Calling windows.update(state: 'normal') would
+      // unmaximize/resize the user's window every time page context is sent.
       try {
-        if (tab.windowId != null) {
-          await browser.windows.update(tab.windowId, { state: 'normal' })
-        }
         if (!tab.active) {
           await browser.tabs.update(tab.id, { active: true })
           await sleep(150)

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { AttachedFile } from '../attachments'
 import type { ModelOption } from '../useOpencode'
 import type { LayoutMode } from '../design/useLayoutMode'
-import { Chip, IconButton, Progress } from '../design/primitives'
+import { Chip, IconButton } from '../design/primitives'
 import { ModelSheet } from './ModelSheet'
 import { ComposerOptionsSheet } from './ComposerOptionsSheet'
 import { ProviderAvatar } from './ProviderAvatar'
@@ -205,8 +205,7 @@ export function ComposerDock({
         </div>
       ) : null}
 
-      <div className="composer-surface">
-        {busy ? <Progress /> : null}
+      <div className={`composer-surface${busy ? ' is-busy' : ''}`} aria-busy={busy}>
         {files.length > 0 ? (
           <div className="composer-attachments">
             {files.map((file, index) => (
