@@ -149,10 +149,9 @@ export function SettingsView({
   }
 
   const reviewDisclosure = async () => {
-    await Promise.all([
-      settings.privacyConsentVersion.setValue(0),
-      settings.onboardingComplete.setValue(false),
-    ])
+    // Keep onboardingComplete true so the flow goes straight to the privacy
+    // step instead of restarting the welcome and connection screens.
+    await settings.privacyConsentVersion.setValue(0)
     window.location.reload()
   }
 
@@ -376,7 +375,7 @@ export function SettingsView({
                 checked={includeContext}
                 onCheckedChange={onIncludeContextChange}
                 label="Send page context by default"
-                supporting="Include a snapshot of the active tab with each prompt."
+                supporting="Include this window's tab titles and URLs, an active-tab snapshot, and a full-page screenshot when the model supports images."
               />
               <Switch
                 checked={followAgent}

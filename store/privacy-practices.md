@@ -62,4 +62,4 @@ The privacy policy includes:
 - The only non-loopback request in the released build is none; provider marks are local initials. All functional traffic goes to the user's `localhost` opencode service.
 - The first-run screen discloses what can be sent and requires affirmative consent before the composer is enabled.
 - Settings → Data & privacy includes a policy link, a “review disclosure” button, and a “clear stored data” button.
-- Workflows are read-only by default; submissions require a per-workflow opt-in.
+- Workflows are read-only by default; native submissions, send/post-style controls, uploads, and JavaScript execution are blocked unless the user opts in per workflow.

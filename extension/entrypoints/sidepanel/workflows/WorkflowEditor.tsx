@@ -295,7 +295,7 @@ export function WorkflowEditor({
           )}
 
           {form.kind === 'weekdays' && (
-            <div className="field">
+            <div className="ui-field">
               <span className="ui-field-label">Days</span>
               <div className="days-row">
                 {DAY_LABELS.map((label, day) => (
@@ -304,6 +304,7 @@ export function WorkflowEditor({
                     type="button"
                     className={`day-chip${form.days.includes(day) ? ' is-selected' : ''}`}
                     aria-pressed={form.days.includes(day)}
+                    aria-label={DAY_TITLES[day]}
                     title={DAY_TITLES[day]}
                     onClick={() => toggleDay(day)}
                   >
@@ -425,13 +426,17 @@ export function WorkflowEditor({
         <section className="editor-section">
           <div className="editor-section-head">
             <h2>Safety</h2>
-            <p>Read-only is the default. Only allow side effects for tasks you have reviewed.</p>
+            <p>
+              Read-only is the default and blocks native form submissions, send/post-style controls, uploads, and
+              JavaScript execution. Pages can still implement actions in JavaScript, so review the instruction and use
+              trusted accounts.
+            </p>
           </div>
           <Switch
             checked={form.allowSubmissions}
             onCheckedChange={(value) => set('allowSubmissions', value)}
             label="Allow submissions and messages"
-            supporting="Permit forms, send/reply, post, publish, purchase, or account changes. Use only on accounts you control."
+            supporting="Permit submit/send-style clicks, forms, uploads, messages, purchases, or account changes. Use only on accounts you control."
           />
           {form.allowSubmissions ? (
             <div className="inline-notice is-warning">

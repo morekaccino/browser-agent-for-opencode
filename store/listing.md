@@ -29,7 +29,7 @@ This extension is the browser side. It connects to opencode running on your comp
 - **Console access** — read recent logs and errors; evaluate JavaScript through Chrome's debugger API.
 - **Screenshots** for visual tasks, charts, layouts, and broken styling.
 - **Tabs and downloads** — list, open, close, group, and inspect recent downloads.
-- **Scheduled workflows** — save a self-contained instruction and run it on a schedule. Workflows are read-only by default; you can opt in to form submissions or messages per workflow.
+- **Scheduled workflows** — save a self-contained instruction and run it on a schedule. Workflows are read-only by default and block native submissions, send/post-style controls, uploads, and JavaScript execution; you can opt in to broader interactions per workflow.
 
 ### How it works
 

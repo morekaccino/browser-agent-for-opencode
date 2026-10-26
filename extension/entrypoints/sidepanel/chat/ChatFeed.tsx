@@ -1,23 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { UiMessage, UiPart } from '../useOpencode'
 import { Markdown } from '../components/Markdown'
-import { Badge, Button, Chip, EmptyState, IconButton, Spinner } from '../design/primitives'
+import { Badge, Button, Chip, EmptyState, IconButton } from '../design/primitives'
 
-function copy(text: string): void {
+async function copy(text: string): Promise<void> {
   try {
-    void navigator.clipboard.writeText(text)
+    await navigator.clipboard.writeText(text)
   } catch {
     /* clipboard unavailable */
   }
 }
 
-function partText(parts: UiPart[]): string {
+function replyText(parts: UiPart[]): string {
   return parts
-    .map((part) => {
-      if (part.type === 'text' || part.type === 'reasoning') return part.text ?? ''
-      if (part.type === 'tool') return `[${part.tool ?? 'tool'}] ${part.state?.output ?? ''}`
-      return ''
-    })
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text ?? '')
     .filter(Boolean)
     .join('\n\n')
     .trim()
@@ -74,7 +71,7 @@ function ActivityRow({ part }: { part: UiPart }) {
               label="Copy tool output"
               variant="ghost"
               size="sm"
-              onClick={() => copy(String(state.output ?? state.error ?? JSON.stringify(state.input ?? {}, null, 2)))}
+              onClick={() => void copy(String(state.output ?? state.error ?? JSON.stringify(state.input ?? {}, null, 2)))}
             />
           ) : null}
         </div>
@@ -203,7 +200,7 @@ function AssistantMessage({
   busy: boolean
   showIdentity: boolean
 }) {
-  const text = partText(parts)
+  const text = replyText(parts)
   return (
     <div className={`message message-assistant${showIdentity ? '' : ' is-continuation'}`}>
       {showIdentity ? (
@@ -230,7 +227,7 @@ function AssistantMessage({
       ) : null}
       {text ? (
         <div className="assistant-actions">
-          <IconButton icon="content_copy" label="Copy reply" variant="ghost" size="sm" onClick={() => copy(text)} />
+          <IconButton icon="content_copy" label="Copy reply" variant="ghost" size="sm" onClick={() => void copy(text)} />
         </div>
       ) : null}
     </div>
@@ -285,7 +282,12 @@ export function ChatFeed({
   }
 
   const hasPending = !!pendingText || (pendingFiles?.length ?? 0) > 0
-  const isEmpty = messages.length === 0 && !hasPending && !busy
+  const isEmpty = messages.length === 0 && !hasPending && !busy && !error
+  const lastMessage = messages[messages.length - 1]
+  // A failed run is already shown on its assistant message. Do not repeat the
+  // same failure as a second banner at the bottom of the feed.
+  const showGlobalError =
+    !!error && !(lastMessage?.role === 'assistant' && lastMessage.error?.message === error)
 
   return (
     <div className="chat-feed-wrap">
@@ -333,13 +335,7 @@ export function ChatFeed({
                 pending
               />
             ) : null}
-            {busy && !pendingText ? (
-              <div className="working-row">
-                <Spinner label="The agent is working" />
-                <span>working…</span>
-              </div>
-            ) : null}
-            {error ? (
+            {showGlobalError ? (
               <div className="chat-error" role="alert">
                 <span className="msym sm" aria-hidden="true">error</span>
                 <span>{error}</span>

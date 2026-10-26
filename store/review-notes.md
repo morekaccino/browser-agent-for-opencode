@@ -36,8 +36,8 @@ The extension's setup screen is part of the product; no test credentials are req
    - The agent navigates the active tab.
 5. Ask: **“Take a screenshot of this page.”**
    - Chrome may show a yellow “debugging” banner while the screenshot is captured. This is expected; the debugger detaches afterward.
-6. Open **Workflows** (clock icon in the header) → **New**.
-   - Workflows are **read-only by default**. The “Allow submissions and messages” checkbox is off unless the user enables it.
+6. Open **Workflows** from the side-panel menu (the hamburger button when the panel is narrow), then **New**.
+   - Workflows are **read-only by default**. The “Allow submissions and messages” switch is off unless the user enables it.
 7. Create a read-only workflow with a simple instruction and click **Run now**. The run appears in history and a notification is shown when it finishes.
 
 ## Permissions and remote code

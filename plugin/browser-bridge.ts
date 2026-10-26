@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * opencode V2 browser bridge plugin.
  *
@@ -593,7 +592,9 @@ function makeTools(ctx: any) {
 
     {
       name: "browser_press",
-      description: "Press a keyboard key (Enter, Tab, Escape, ArrowDown, PageDown, a letter…) optionally focused on an element.",
+      description:
+        "Press a real keyboard key (Enter, Tab, Escape, ArrowDown, PageDown, a letter…) optionally focused on an element. " +
+        "This briefly attaches Chrome's debugger (a yellow banner may appear).",
       input: obj(
         {
           key: str("Key name, e.g. Enter, Tab, Escape, ArrowUp, a."),
@@ -641,8 +642,10 @@ function makeTools(ctx: any) {
 
     {
       name: "browser_hover",
-      description: "Move the mouse over an element (useful to reveal hover menus/tooltips).",
-      input: obj(targetArgs),
+      description:
+        "Move the real mouse pointer over an element (useful to reveal CSS hover menus/tooltips). " +
+        "This briefly attaches Chrome's debugger (a yellow banner may appear).",
+      input: obj({ ...targetArgs, ...coordinateArgs }),
       async execute(args: any, context: any) {
         const result = await bridgeCall("hover", args, DEFAULT_TIMEOUT, context?.signal)
         return ok(String(result))
@@ -777,7 +780,7 @@ function makeTools(ctx: any) {
         "List the user's scheduled browser workflows (name, id, schedule, enabled state, next run). " +
         "Workflows are definition-only until the user enables them; this tool does not change anything.",
       input: obj({}),
-      async execute() {
+      async execute(_args: any, context: any) {
         const result = await bridgeCall("workflows.list", {}, 30_000, context?.signal)
         const list = Array.isArray(result) ? (result as any[]) : []
         if (list.length === 0) return ok("No workflows yet.")
@@ -976,7 +979,10 @@ export default {
           ...definition,
           execute: async (input: any, context: any) => {
             if (context?.sessionID) state.activeSessions.add(context.sessionID)
-            return execute(input, context)
+            // Carry the opencode session alongside the tool params so the
+            // extension can route the request to that session's Chrome window.
+            const routed = context?.sessionID ? { ...input, __sessionID: context.sessionID } : input
+            return execute(routed, context)
           },
         })
       }

@@ -434,7 +434,6 @@ export function Sheet({
         <Dialog.Overlay className="ui-scrim" />
         <Dialog.Content
           className={`ui-sheet ui-sheet-${side} ${className}`.trim()}
-          aria-describedby={description ? undefined : undefined}
           onEscapeKeyDown={(event) => {
             if (!dismissible) event.preventDefault()
           }}

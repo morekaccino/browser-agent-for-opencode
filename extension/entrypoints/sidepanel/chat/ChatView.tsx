@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { BridgeStatus } from '../../../lib/protocol'
 import type { ActiveTab } from '../hooks'
-import type { useOpencode } from '../useOpencode'
+import { isRunActive, type useOpencode } from '../useOpencode'
 import type { AttachedFile } from '../attachments'
 import type { LayoutMode } from '../design/useLayoutMode'
 import { AppBar } from '../shell/AppBar'
@@ -53,9 +53,13 @@ export function ChatView({
   const [requestOpen, setRequestOpen] = useState(false)
 
   const current = opencode.sessions.find((session) => session.id === opencode.currentId)
+  const currentStatus = current ? opencode.statuses[current.id] : undefined
+  const currentActive = isRunActive(currentStatus)
+  const activeLabel = currentStatus === 'retry' ? 'retrying…' : 'working…'
   const currentTitle =
     current?.title && !current.title.trim().startsWith('ses_') ? current.title : 'New session'
-  const needsSetup = opencode.health !== 'ok' || bridge.state !== 'connected'
+  const connected = opencode.health === 'ok' && bridge.state === 'connected'
+  const needsSetup = !connected
   const lastUserText = useMemo(() => {
     for (let index = opencode.messages.length - 1; index >= 0; index--) {
       const message = opencode.messages[index]
@@ -78,7 +82,7 @@ export function ChatView({
   const appBar = (
     <AppBar
       title={currentTitle}
-      subtitle={current ? (opencode.statuses[current.id] === 'busy' ? 'working…' : undefined) : 'Ask about this page'}
+      subtitle={current ? (currentActive ? activeLabel : undefined) : 'Ask about this page'}
       onMenu={mode === 'compact' ? onMenu : undefined}
       onTitleClick={mode === 'expanded' ? undefined : () => setSessionSheetOpen(true)}
       actions={
@@ -87,13 +91,10 @@ export function ChatView({
             type="button"
             className="app-bar-health-button"
             onClick={() => setConnectionOpen(true)}
-            title={bridge.state === 'connected' && opencode.health === 'ok' ? 'opencode connected' : 'connection needs attention'}
-            aria-label="Connection status"
+            title={connected ? 'opencode and browser bridge connected' : 'connection needs attention'}
+            aria-label={connected ? 'opencode and browser bridge connected' : 'connection needs attention'}
           >
-            <span
-              className={`app-bar-health${bridge.state === 'connected' && opencode.health === 'ok' ? ' is-ok' : ' is-warn'}`}
-              aria-hidden="true"
-            />
+            <span className={`app-bar-health${connected ? ' is-ok' : ' is-warn'}`} aria-hidden="true" />
           </button>
           <IconButton icon="add" label="New session" onClick={() => void opencode.newSession()} />
           <Menu
@@ -114,7 +115,7 @@ export function ChatView({
   const composer = (
     <ComposerDock
       disabled={needsSetup}
-      busy={opencode.statuses[opencode.currentId ?? ''] === 'busy'}
+      busy={isRunActive(opencode.statuses[opencode.currentId ?? ''])}
       sessionId={opencode.currentId}
       models={opencode.models}
       modelValue={opencode.model ? `${opencode.model.providerID}/${opencode.model.modelID}` : ''}
@@ -173,7 +174,7 @@ export function ChatView({
             <ChatFeed
               messages={opencode.messages}
               parts={opencode.parts}
-              busy={opencode.statuses[opencode.currentId ?? ''] === 'busy'}
+              busy={isRunActive(opencode.statuses[opencode.currentId ?? ''])}
               error={opencode.lastError}
               pendingText={opencode.pendingSend?.text}
               pendingFiles={opencode.pendingSend?.files?.map((filename) => ({ filename }))}

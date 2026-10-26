@@ -11,9 +11,21 @@ import type {
   V2Event,
 } from '@opencode/client'
 import { basicAuthHeader } from '../../lib/auth'
+import {
+  bindSessionWindow,
+  forgetSession,
+  sessionForWindow,
+  sessionOwnedByOtherWindow,
+  sessionsBoundToOtherWindows,
+} from '../../lib/routing'
 import { settings } from '../../lib/settings'
 
 export type SessionRunStatus = 'idle' | 'busy' | 'retry'
+
+/** A session is "working" while it is running or retrying a failed model call. */
+export function isRunActive(status: SessionRunStatus | undefined): boolean {
+  return status === 'busy' || status === 'retry'
+}
 
 export interface ModelOption {
   value: string
@@ -127,7 +139,8 @@ function adaptMessages(rows: SessionMessageInfo[]): {
   for (const row of rows) {
     if (row.type === 'user') {
       const list: UiPart[] = []
-      if (row.text) list.push({ id: `${row.id}:text`, type: 'text', text: row.text })
+      const text = (row.text ?? '').replace(/<browser-context>[\s\S]*?<\/browser-context>\s*/g, '').trim()
+      if (text) list.push({ id: `${row.id}:text`, type: 'text', text })
       for (const [index, file] of (row.files ?? []).entries()) {
         const uri = file.source?.type === 'uri' ? file.source.uri : undefined
         const name = file.name ?? uri?.split(/[\\/]/).pop() ?? 'attachment'
@@ -190,7 +203,11 @@ function adaptMessages(rows: SessionMessageInfo[]): {
   return { messages, parts }
 }
 
-export function useOpencode(serverUrl: string, auth: { username: string; password: string } | null) {
+export function useOpencode(
+  serverUrl: string,
+  auth: { username: string; password: string } | null,
+  windowId: number | null = null,
+) {
   const authHeaders = useMemo(() => {
     if (auth && (auth.username || auth.password)) {
       return { Authorization: basicAuthHeader(auth.username, auth.password) }
@@ -232,7 +249,13 @@ export function useOpencode(serverUrl: string, auth: { username: string; passwor
   const modelsRef = useRef<ModelOption[]>([])
   modelsRef.current = models
 
+  const statusesRef = useRef<Record<string, SessionRunStatus>>({})
+  statusesRef.current = statuses
+
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const loadToken = useRef(0)
+  const messagesSession = useRef<string | null>(null)
+  const creatingSession = useRef<Promise<SessionInfo | null> | null>(null)
 
   // ---- health ---------------------------------------------------------------------------
   useEffect(() => {
@@ -273,19 +296,36 @@ export function useOpencode(serverUrl: string, auth: { username: string; passwor
       }
       setSessions(all)
       setSessionsLoaded(true)
-      if (!currentIdRef.current) {
-        const first = all[0]
+      if (currentIdRef.current && !all.some((session) => session.id === currentIdRef.current)) {
+        currentIdRef.current = null
+        setCurrentId(null)
+      }
+      if (!currentIdRef.current && windowId != null) {
+        const saved = await sessionForWindow(windowId)
+        let preferred = saved ? all.find((session) => session.id === saved) : undefined
+        if (!preferred && windowId != null) {
+          const taken = await sessionsBoundToOtherWindows(windowId)
+          preferred = all.find((session) => !taken.has(session.id))
+        }
+        const first = preferred ?? all[0]
         if (first) setCurrentId(first.id)
       }
     } catch {
       /* server down; health check surfaces it */
     }
-  }, [client])
+  }, [client, windowId])
 
   useEffect(() => {
     if (health !== 'ok') return
     void refreshSessions()
   }, [health, refreshSessions])
+
+  // Remember this window's session so browser tools from the agent are routed
+  // to the same Chrome window, and so a second side panel gets its own session.
+  useEffect(() => {
+    if (!currentId || windowId == null) return
+    void bindSessionWindow(currentId, windowId)
+  }, [currentId, windowId])
 
   // Mark sessions that are already running when the panel opens.
   useEffect(() => {
@@ -364,16 +404,27 @@ export function useOpencode(serverUrl: string, auth: { username: string; passwor
   // ---- message loading ---------------------------------------------------------------------
   const loadMessages = useCallback(
     async (sessionId: string, options: { tail?: boolean } = {}) => {
+      // Only a full load starts a new generation. A tail must not invalidate
+      // the full load it depends on; otherwise both can return without setting
+      // the transcript.
+      const token = options.tail ? loadToken.current : ++loadToken.current
       try {
         if (options.tail) {
           const result = await client.message.list(
             { sessionID: sessionId, limit: 200, order: 'desc' },
             { signal: AbortSignal.timeout(15000) },
           )
-          if (currentIdRef.current !== sessionId) return
+          if (currentIdRef.current !== sessionId || token !== loadToken.current) return
+          if (messagesSession.current !== sessionId) return
           const adapted = adaptMessages([...result.data].reverse())
-          setMessages(adapted.messages)
-          setParts(adapted.parts)
+          // A tail refresh must not throw away history that was loaded by the
+          // initial full page-through. Replace the messages that changed and
+          // append the rest after the existing older messages.
+          setMessages((previous) => {
+            const incoming = new Set(adapted.messages.map((message) => message.id))
+            return [...previous.filter((message) => !incoming.has(message.id)), ...adapted.messages]
+          })
+          setParts((previous) => ({ ...previous, ...adapted.parts }))
           return
         }
 
@@ -388,18 +439,27 @@ export function useOpencode(serverUrl: string, auth: { username: string; passwor
           cursor = result.cursor.next ?? undefined
           if (!cursor || result.data.length === 0) break
         }
-        if (currentIdRef.current !== sessionId) return
+        if (currentIdRef.current !== sessionId || token !== loadToken.current) return
         const adapted = adaptMessages(all)
+        messagesSession.current = sessionId
         setMessages(adapted.messages)
         setParts(adapted.parts)
       } catch {
-        /* ignore */
+        // If the initial page-through fails for the current session, clear any
+        // stale transcript and let later tail refreshes fill the feed.
+        if (!options.tail && currentIdRef.current === sessionId && token === loadToken.current) {
+          messagesSession.current = sessionId
+          setMessages([])
+          setParts({})
+        }
       }
     },
     [client],
   )
 
   useEffect(() => {
+    setLastError(null)
+    messagesSession.current = null
     if (!currentId) {
       setMessages([])
       setParts({})
@@ -467,13 +527,18 @@ export function useOpencode(serverUrl: string, auth: { username: string; passwor
   }, [health, client])
 
   const runCommand = useCallback(
-    async (raw: string) => {
+    async (raw: string): Promise<boolean> => {
       const id = currentIdRef.current
-      if (!id) return
+      if (!id) return false
       const match = /^\/(\S+)\s*([\s\S]*)$/.exec(raw.trim())
-      if (!match) return
+      if (!match) return false
       const command = match[1] ?? ''
-      if (!command) return
+      if (!command) return false
+      if (windowId != null && (await sessionOwnedByOtherWindow(id, windowId))) {
+        setLastError('This session is active in another Chrome window. Use the session for this window instead.')
+        return false
+      }
+      if (windowId != null) await bindSessionWindow(id, windowId)
       const args = (match[2] ?? '').trim()
       setLastError(null)
       setStatuses((prev) => ({ ...prev, [id]: 'busy' }))
@@ -492,12 +557,14 @@ export function useOpencode(serverUrl: string, auth: { username: string; passwor
           )
         }
         await client.session.command({ sessionID: id, name: command, text: args }, { signal: AbortSignal.timeout(30000) })
+        return true
       } catch (error) {
         setLastError(errorMessage(error))
         setStatuses((prev) => ({ ...prev, [id]: 'idle' }))
+        return false
       }
     },
-    [client, model, variant],
+    [client, model, variant, windowId],
   )
 
   // ---- session cost ------------------------------------------------------------------------
@@ -541,7 +608,11 @@ export function useOpencode(serverUrl: string, auth: { username: string; passwor
         if (running) {
           setStatuses((prev) => (prev[currentId] === 'busy' ? prev : { ...prev, [currentId]: 'busy' }))
         } else if (idle) {
+          const wasActive = statusesRef.current[currentId] !== 'idle'
           setStatuses((prev) => (prev[currentId] === 'idle' ? prev : { ...prev, [currentId]: 'idle' }))
+          // A missed completion event must not leave the transcript one reply
+          // behind; refresh once when the session becomes idle.
+          if (wasActive) scheduleRefresh(currentId)
         }
       } catch {
         /* server hiccup; next tick retries */
@@ -553,7 +624,7 @@ export function useOpencode(serverUrl: string, auth: { username: string; passwor
       cancelled = true
       clearInterval(timer)
     }
-  }, [health, client, currentId])
+  }, [health, client, currentId, scheduleRefresh])
 
   const contextUsage = useMemo<ContextUsage | null>(() => {
     for (let index = messages.length - 1; index >= 0; index--) {
@@ -595,9 +666,13 @@ export function useOpencode(serverUrl: string, auth: { username: string; passwor
           }
           break
         }
+        case 'session.deleted': {
+          if (data.sessionID) void forgetSession(data.sessionID)
+          void refreshSessions()
+          break
+        }
         case 'session.created':
         case 'session.renamed':
-        case 'session.deleted':
         case 'session.archived':
         case 'session.unarchived':
         case 'session.moved':
@@ -610,7 +685,11 @@ export function useOpencode(serverUrl: string, auth: { username: string; passwor
           break
         }
         case 'session.execution.failed': {
-          setLastError(data.error?.message ?? 'session failed')
+          if (!data.sessionID || data.sessionID === currentIdRef.current) {
+            setLastError(
+              typeof data.error === 'string' ? data.error : (data.error?.message ?? 'session failed'),
+            )
+          }
           if (data.sessionID) {
             setStatuses((prev) => ({ ...prev, [data.sessionID]: 'idle' }))
             scheduleRefresh(data.sessionID)
@@ -733,6 +812,7 @@ export function useOpencode(serverUrl: string, auth: { username: string; passwor
         { signal: AbortSignal.timeout(20000) },
       )
       if (session) {
+        if (windowId != null) await bindSessionWindow(session.id, windowId)
         await refreshSessions()
         setCurrentId(session.id)
       }
@@ -741,7 +821,7 @@ export function useOpencode(serverUrl: string, auth: { username: string; passwor
       setLastError(errorMessage(error))
       return null
     }
-  }, [client, refreshSessions])
+  }, [client, refreshSessions, windowId])
 
   // ---- agents (build / plan / …) -----------------------------------------------------------
   useEffect(() => {
@@ -787,6 +867,7 @@ export function useOpencode(serverUrl: string, auth: { username: string; passwor
     async (sessionId: string) => {
       try {
         await client.session.remove({ sessionID: sessionId }, { signal: AbortSignal.timeout(15000) })
+        await forgetSession(sessionId)
         const result = await client.session.list({ limit: 100, order: 'desc' }, { signal: AbortSignal.timeout(15000) })
         setSessions(result.data)
         if (currentIdRef.current === sessionId) setCurrentId(result.data[0]?.id ?? null)
@@ -802,14 +883,33 @@ export function useOpencode(serverUrl: string, auth: { username: string; passwor
       text: string,
       opts?: { system?: string; files?: { mime: string; filename: string; dataUrl: string }[] },
     ): Promise<boolean> => {
-      const id = currentIdRef.current
-      if (!id) return false
+      if (!text.trim() && (opts?.files?.length ?? 0) === 0) return true
+      let id = currentIdRef.current
+      if (!id) {
+        let creation = creatingSession.current
+        if (!creation) {
+          creation = newSession()
+          creatingSession.current = creation
+          void creation.finally(() => {
+            if (creatingSession.current === creation) creatingSession.current = null
+          })
+        }
+        const session = await creation
+        if (!session) return false
+        id = session.id
+        currentIdRef.current = id
+      }
+      if (windowId != null && (await sessionOwnedByOtherWindow(id, windowId))) {
+        setLastError('This session is active in another Chrome window. Use the session for this window instead.')
+        return false
+      }
       const files = (opts?.files ?? []).map((file) => ({ uri: file.dataUrl, name: file.filename }))
-      if (!text.trim() && files.length === 0) return true
       setLastError(null)
       setPendingSend({ text, files: (opts?.files ?? []).map((file) => file.filename) })
       setStatuses((prev) => ({ ...prev, [id]: 'busy' }))
+      if (windowId != null) await bindSessionWindow(id, windowId)
       let promptText = text
+      let contextInboxID: string | null = null
       try {
         if (agent) {
           await client.session.switchAgent({ sessionID: id, agent }, { signal: AbortSignal.timeout(15000) })
@@ -829,12 +929,16 @@ export function useOpencode(serverUrl: string, auth: { username: string; passwor
         }
         if (opts?.system) {
           try {
-            await client.session.synthetic(
-              { sessionID: id, text: opts.system, description: 'browser page context' },
+            // resume:false queues the context without starting a run of its
+            // own. The prompt below starts one run that delivers the context
+            // first, then the user's message.
+            const context = await client.session.synthetic(
+              { sessionID: id, text: opts.system, description: 'browser page context', resume: false },
               { signal: AbortSignal.timeout(20000) },
             )
+            contextInboxID = context.id
           } catch {
-            promptText = `${opts.system}\n\n${text}`
+            promptText = `<browser-context>\n${opts.system}\n</browser-context>\n\n${text}`
           }
         }
         await client.session.prompt(
@@ -843,6 +947,11 @@ export function useOpencode(serverUrl: string, auth: { username: string; passwor
         )
         return true
       } catch (error) {
+        if (contextInboxID) {
+          void client.session.inbox
+            .cancel({ sessionID: id, inboxID: contextInboxID }, { signal: AbortSignal.timeout(10000) })
+            .catch(() => {})
+        }
         setLastError(errorMessage(error))
         setStatuses((prev) => ({ ...prev, [id]: 'idle' }))
         return false
@@ -851,7 +960,7 @@ export function useOpencode(serverUrl: string, auth: { username: string; passwor
         if (currentIdRef.current === id) void loadMessages(id, { tail: true })
       }
     },
-    [client, model, agent, variant, loadMessages],
+    [client, model, agent, variant, loadMessages, newSession, windowId],
   )
 
   const abort = useCallback(async () => {

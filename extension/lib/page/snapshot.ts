@@ -4,6 +4,7 @@ import {
   getRef,
   isInteractive,
   isRendered,
+  isSensitiveField,
   implicitRole,
 } from './dom'
 
@@ -47,7 +48,10 @@ function renderElement(el: Element): RenderLine | null {
     if (type !== 'text' && type !== 'checkbox' && type !== 'radio' && type !== 'button' && type !== 'submit') {
       bits.push(`type=${type}`)
     }
-    if (type === 'text' || type === 'password' || type === 'search' || type === 'email' || type === 'url' || type === 'tel' || type === 'number') {
+    // Never put secret fields (passwords, OTPs, payment data, …) into a
+    // snapshot that may be sent to the model provider.
+    const secret = isSensitiveField(input)
+    if (!secret && (type === 'text' || type === 'search' || type === 'email' || type === 'url' || type === 'tel' || type === 'number')) {
       if (input.value) bits.push(`value="${cleanText(input.value, 60)}"`)
     }
     if (type === 'checkbox' || type === 'radio') bits.push(`checked=${input.checked}`)
@@ -68,7 +72,7 @@ function renderElement(el: Element): RenderLine | null {
   if (tag === 'textarea') {
     const ta = el as HTMLTextAreaElement
     const bits = [`textbox${name ? ` "${name}"` : ''}`, `[ref=${getRef(el)}]`]
-    if (ta.value) bits.push(`value="${cleanText(ta.value, 60)}"`)
+    if (ta.value && !isSensitiveField(ta)) bits.push(`value="${cleanText(ta.value, 60)}"`)
     if (ta.disabled) bits.push('[disabled]')
     return { text: bits.join(' '), isRef: true }
   }

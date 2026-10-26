@@ -9,6 +9,39 @@ import { ProviderAvatar } from './ProviderAvatar'
 
 const MAX_FILE_BYTES = 8 * 1024 * 1024
 
+interface ComposerDraft {
+  text: string
+  files: AttachedFile[]
+}
+
+const DRAFT_LIMIT = 10
+const NO_SESSION_KEY = '__no_session__'
+const drafts = new Map<string, ComposerDraft>()
+
+function draftKey(sessionId: string | null): string {
+  return sessionId ?? NO_SESSION_KEY
+}
+
+function readDraft(key: string): ComposerDraft | undefined {
+  const draft = drafts.get(key)
+  if (!draft) return undefined
+  // Refresh LRU order without copying the attachments.
+  drafts.delete(key)
+  drafts.set(key, draft)
+  return draft
+}
+
+function saveDraft(key: string, draft: ComposerDraft): void {
+  drafts.delete(key)
+  if (!draft.text && draft.files.length === 0) return
+  drafts.set(key, draft)
+  while (drafts.size > DRAFT_LIMIT) {
+    const oldest = drafts.keys().next().value
+    if (oldest === undefined) break
+    drafts.delete(oldest)
+  }
+}
+
 function readFileAsAttachment(file: File): Promise<AttachedFile | null> {
   if (file.size > MAX_FILE_BYTES) return Promise.resolve(null)
   return new Promise((resolve) => {
@@ -66,8 +99,8 @@ export function ComposerDock({
   onStop: () => void
   mode: LayoutMode
 }) {
-  const [text, setText] = useState('')
-  const [files, setFiles] = useState<AttachedFile[]>([])
+  const [text, setText] = useState(() => readDraft(draftKey(sessionId))?.text ?? '')
+  const [files, setFiles] = useState<AttachedFile[]>(() => readDraft(draftKey(sessionId))?.files ?? [])
   const [suggestIndex, setSuggestIndex] = useState(0)
   const [suggestDismissed, setSuggestDismissed] = useState(false)
   const [modelOpen, setModelOpen] = useState(false)
@@ -77,8 +110,9 @@ export function ComposerDock({
   const [attachError, setAttachError] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const draftsRef = useRef<Record<string, { text: string; files: AttachedFile[] }>>({})
-  const sessionRef = useRef<string | null>(sessionId)
+  const sessionRef = useRef<string | null | undefined>(undefined)
+  const latestRef = useRef({ text, files })
+  latestRef.current = { text, files }
 
   const currentModel = models.find((model) => model.value === modelValue)
   const currentAgent = agents.find((entry) => entry.id === agent)
@@ -86,18 +120,28 @@ export function ComposerDock({
 
   useEffect(() => {
     const previous = sessionRef.current
-    if (previous) draftsRef.current[previous] = { text, files }
-    sessionRef.current = sessionId
-    const next = sessionId ? draftsRef.current[sessionId] : undefined
-    setText(next?.text ?? '')
-    setFiles(next?.files ?? [])
+    const previousKey = previous !== undefined ? draftKey(previous) : undefined
+    const next = readDraft(draftKey(sessionId))
+    if (!next && previousKey === NO_SESSION_KEY) {
+      // A session was just created while a draft existed. Keep that draft
+      // instead of dropping it when the composer switches to the new session.
+      saveDraft(draftKey(sessionId), latestRef.current)
+      drafts.delete(NO_SESSION_KEY)
+      setText(latestRef.current.text)
+      setFiles(latestRef.current.files)
+    } else {
+      setText(next?.text ?? '')
+      setFiles(next?.files ?? [])
+    }
     setSuggestDismissed(false)
+    sessionRef.current = sessionId
+    return () => {
+      if (sessionRef.current !== undefined) {
+        saveDraft(draftKey(sessionRef.current), latestRef.current)
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
-
-  useEffect(() => {
-    if (sessionRef.current) draftsRef.current[sessionRef.current] = { text, files }
-  }, [text, files])
 
   useEffect(() => {
     if (!attachError) return
@@ -146,7 +190,7 @@ export function ComposerDock({
 
   const submit = async () => {
     const trimmed = text.trim()
-    if ((!trimmed && files.length === 0) || disabled || submitting) return
+    if ((!trimmed && files.length === 0) || disabled || busy || submitting) return
     const sendingFiles = files
     setText('')
     setFiles([])
@@ -169,7 +213,8 @@ export function ComposerDock({
         setDragOver(true)
       }}
       onDragLeave={(event) => {
-        if (event.currentTarget === event.target) setDragOver(false)
+        const next = event.relatedTarget as Node | null
+        if (!next || !event.currentTarget.contains(next)) setDragOver(false)
       }}
       onDrop={(event) => {
         event.preventDefault()
@@ -326,7 +371,7 @@ export function ComposerDock({
               selected={includeContext}
               onClick={onOpenContext}
               className="composer-context-chip"
-              title="Page context"
+              title="Page context: active tab, open tabs, and a full-page screenshot for image models"
             />
           ) : null}
 
@@ -342,14 +387,12 @@ export function ComposerDock({
 
           <div className="composer-spacer" />
 
-          {mode !== 'compact' || currentVariants.length > 0 ? (
-            <IconButton
-              icon="tune"
-              label="Message options"
-              variant="ghost"
-              onClick={() => setOptionsOpen(true)}
-            />
-          ) : null}
+          <IconButton
+            icon="tune"
+            label="Message options"
+            variant="ghost"
+            onClick={() => setOptionsOpen(true)}
+          />
 
           {busy ? (
             <IconButton icon="stop" label="Stop" variant="tonal" className="composer-stop" onClick={onStop} />

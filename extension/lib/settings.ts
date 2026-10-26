@@ -61,7 +61,7 @@ export const bridgeStatusItem = storage.defineItem<BridgeStatus>('local:bridgeSt
   fallback: { state: 'disconnected' },
 })
 
-/** Chrome tab-group id of the "tabs the agent opened" group (survives SW restarts). */
-export const agentGroupIdItem = storage.defineItem<number | null>('session:agentGroupId', {
-  fallback: null,
+/** Chrome tab-group id per window for the "tabs the agent opened" group. */
+export const agentGroupIdsItem = storage.defineItem<Record<string, number>>('session:agentGroupIds', {
+  fallback: {},
 })

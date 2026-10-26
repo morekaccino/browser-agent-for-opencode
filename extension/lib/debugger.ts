@@ -242,9 +242,40 @@ export async function clickPoint(tabId: number, x: number, y: number): Promise<v
   await browser.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...base, buttons: 0 })
 }
 
+/** Move the real pointer so CSS :hover and pointer handlers run. */
+export async function hoverPoint(tabId: number, x: number, y: number): Promise<void> {
+  await ensureAttached(tabId)
+  await browser.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: Math.round(x),
+    y: Math.round(y),
+    button: 'none',
+    buttons: 0,
+    modifiers: 0,
+  })
+}
+
 export async function insertTextAtFocus(tabId: number, text: string): Promise<void> {
   await ensureAttached(tabId)
   await browser.debugger.sendCommand({ tabId }, 'Input.insertText', { text })
+}
+
+/** Select the focused field's contents without relying on an OS-specific modifier. */
+export async function selectAllAtFocus(tabId: number): Promise<void> {
+  await ensureAttached(tabId)
+  const base = {
+    key: 'a',
+    code: 'KeyA',
+    windowsVirtualKeyCode: 65,
+    nativeVirtualKeyCode: 65,
+    modifiers: 0,
+  }
+  await browser.debugger.sendCommand({ tabId }, 'Input.dispatchKeyEvent', {
+    type: 'rawKeyDown',
+    ...base,
+    commands: ['selectAll'],
+  })
+  await browser.debugger.sendCommand({ tabId }, 'Input.dispatchKeyEvent', { type: 'keyUp', ...base })
 }
 
 const KEYS: Record<string, { code: string; vk: number; text?: string }> = {
@@ -265,17 +296,26 @@ const KEYS: Record<string, { code: string; vk: number; text?: string }> = {
 }
 
 export async function pressKeyCdp(tabId: number, key: string): Promise<void> {
-  const info = KEYS[key]
-  if (!info) {
-    // printable characters
-    await insertTextAtFocus(tabId, key)
-    return
-  }
+  const named = KEYS[key]
+  if (!named && key.length !== 1) throw new Error(`unsupported key: ${key}`)
   await ensureAttached(tabId)
+
+  let info = named
+  if (!info) {
+    const upper = key.toUpperCase()
+    const code = /[A-Z]/.test(upper) ? `Key${upper}` : /[0-9]/.test(upper) ? `Digit${upper}` : key
+    info = { code, vk: key.charCodeAt(0), text: key }
+  }
+
   const base = { key, code: info.code, windowsVirtualKeyCode: info.vk, nativeVirtualKeyCode: info.vk }
   await browser.debugger.sendCommand({ tabId }, 'Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base })
   if (info.text) {
-    await browser.debugger.sendCommand({ tabId }, 'Input.dispatchKeyEvent', { type: 'char', ...base, text: info.text, unmodifiedText: info.text })
+    await browser.debugger.sendCommand({ tabId }, 'Input.dispatchKeyEvent', {
+      type: 'char',
+      ...base,
+      text: info.text,
+      unmodifiedText: info.text,
+    })
   }
   await browser.debugger.sendCommand({ tabId }, 'Input.dispatchKeyEvent', { type: 'keyUp', ...base })
 }
@@ -345,13 +385,43 @@ export async function snapshotFrames(tabId: number): Promise<FrameSnapshot[]> {
           awaitPromise: false,
           expression: `(() => {
             const clean = (t) => (t || '').replace(/\\s+/g, ' ').trim().slice(0, 80)
+            const sensitive = (el) => {
+              if (String(el.type || '').toLowerCase() === 'password') return true
+              const autocomplete = String(el.getAttribute('autocomplete') || '').toLowerCase()
+              if (/(^|\\s)(current-password|new-password|one-time-code|cc-number|cc-csc|cc-exp|cc-exp-month|cc-exp-year)(\\s|$)/.test(autocomplete)) return true
+              const hint = [
+                el.getAttribute('name'),
+                el.getAttribute('id'),
+                el.getAttribute('placeholder'),
+                el.getAttribute('aria-label'),
+              ].filter(Boolean).join(' ').toLowerCase()
+              return /pass(word|code)?|otp|one[- ]?time|2fa|mfa|totp|cvv|cvc|card[- ]?(number|no)|credit[- ]?card|debit[- ]?card|security[- ]?code|ssn|social[- ]?security|tax[- ]?id|iban|account[- ]?number|routing[- ]?number|secret|token/.test(hint)
+            }
+            const labelOf = (el) => {
+              const direct = el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('title')
+              if (direct) return clean(direct)
+              if (el instanceof HTMLSelectElement) {
+                return clean((el.selectedOptions[0] && el.selectedOptions[0].textContent) || '')
+              }
+              if (el instanceof HTMLInputElement) {
+                if (el.type === 'password') return 'password field'
+                if (sensitive(el)) return 'sensitive field'
+                if (el.type === 'file') return 'file input'
+                if (el.type === 'checkbox' || el.type === 'radio') {
+                  return clean((el.name || el.type) + ' ' + (el.checked ? 'checked' : 'unchecked'))
+                }
+                return clean(el.value || el.type)
+              }
+              if (el instanceof HTMLTextAreaElement) return sensitive(el) ? 'sensitive field' : clean(el.value || 'text area')
+              return clean(el.innerText || '')
+            }
             const items = []
             const nodes = document.querySelectorAll('input, button, a[href], select, textarea, [role=button], [contenteditable=true]')
             for (const el of Array.from(nodes).slice(0, 40)) {
               const r = el.getBoundingClientRect()
               if (r.width < 4 || r.height < 4) continue
               if (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) continue
-              const name = clean(el.getAttribute('aria-label') || el.innerText || el.getAttribute('placeholder') || el.value || el.getAttribute('title'))
+              const name = labelOf(el)
               items.push({ tag: el.tagName.toLowerCase(), name, x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
             }
             return {

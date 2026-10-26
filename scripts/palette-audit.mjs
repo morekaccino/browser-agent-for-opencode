@@ -57,11 +57,12 @@ const ratio = (c1, c2) => {
 function palette(seedHex, mode) {
   const seed = hexToOklch(seedHex)
   const h = seed.h
+  const hNeutral = 28
   const cPrimary = Math.min(0.185, Math.max(0.045, seed.c))
   const cTertiary = Math.min(0.13, Math.max(0.035, seed.c * 0.85))
   const cSecondary = Math.min(0.06, Math.max(0.02, seed.c * 0.35))
-  const cNV = Math.min(0.032, Math.max(0.012, seed.c * 0.18))
-  const cNeutral = Math.min(0.016, Math.max(0.004, seed.c * 0.1))
+  const cNV = Math.min(0.014, Math.max(0.006, seed.c * 0.08))
+  const cNeutral = Math.min(0.008, Math.max(0.002, seed.c * 0.05))
   const T = toneColor
   if (mode === 'dark') {
     return {
@@ -78,14 +79,14 @@ function palette(seedHex, mode) {
       onErrorContainer: T(28, 0.11, 90),
       successContainer: T(152, 0.1, 30),
       onSuccessContainer: T(152, 0.1, 90),
-      surface: T(h, cNeutral, 6),
-      onSurface: T(h, cNeutral, 90),
-      onSurfaceVariant: T(h, cNV, 80),
-      surfaceContainerHigh: T(h, cNeutral, 17),
-      surfaceContainerHighest: T(h, cNeutral, 22),
-      outline: T(h, cNV, 60),
-      inverseSurface: T(h, cNeutral, 90),
-      inverseOnSurface: T(h, cNeutral, 20),
+      surface: T(hNeutral, cNeutral, 6),
+      onSurface: T(hNeutral, cNeutral, 91),
+      onSurfaceVariant: T(hNeutral, cNV, 78),
+      surfaceContainerHigh: T(hNeutral, cNeutral, 16),
+      surfaceContainerHighest: T(hNeutral, cNeutral, 21),
+      outline: T(hNeutral, cNV, 58),
+      inverseSurface: T(hNeutral, cNeutral, 90),
+      inverseOnSurface: T(hNeutral, cNeutral, 20),
     }
   }
   return {
@@ -102,14 +103,14 @@ function palette(seedHex, mode) {
     onErrorContainer: T(28, 0.11, 10),
     successContainer: T(152, 0.1, 90),
     onSuccessContainer: T(152, 0.1, 10),
-    surface: T(h, cNeutral, 98),
-    onSurface: T(h, cNeutral, 10),
-    onSurfaceVariant: T(h, cNV, 30),
-    surfaceContainerHigh: T(h, cNeutral, 92),
-    surfaceContainerHighest: T(h, cNeutral, 90),
-    outline: T(h, cNV, 50),
-    inverseSurface: T(h, cNeutral, 20),
-    inverseOnSurface: T(h, cNeutral, 95),
+    surface: T(hNeutral, cNeutral, 98),
+    onSurface: T(hNeutral, cNeutral, 10),
+    onSurfaceVariant: T(hNeutral, cNV, 32),
+    surfaceContainerHigh: T(hNeutral, cNeutral, 92),
+    surfaceContainerHighest: T(hNeutral, cNeutral, 89),
+    outline: T(hNeutral, cNV, 50),
+    inverseSurface: T(hNeutral, cNeutral, 20),
+    inverseOnSurface: T(hNeutral, cNeutral, 95),
   }
 }
 

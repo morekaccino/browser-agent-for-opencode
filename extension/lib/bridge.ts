@@ -1,8 +1,11 @@
 import { browser } from 'wxt/browser'
+import { closeAutomationWindow, markAutomationWindow } from './automation-windows'
 import { clearAgentActivity, handleRequest } from './handlers'
 import type { BridgeStatus, InboundMessage, OpencodeEndpoint } from './protocol'
+import { bindSessionWindow, forgetWindow, windowForSession } from './routing'
 import { bridgeStatusItem, settings } from './settings'
 import { notifyAgentIdle } from './workflows/runner'
+import { getWorkflowSessionPolicy } from './workflows/store'
 
 const PORT_ATTEMPTS = 10
 const PING_INTERVAL = 20000
@@ -282,8 +285,21 @@ async function onMessage(raw: string): Promise<void> {
     }
     case 'agent-state': {
       if (msg.state === 'idle') {
-        void clearAgentActivity()
-        notifyAgentIdle(msg.sessionID)
+        void (async () => {
+          if (msg.sessionID) {
+            const windowId = await windowForSession(msg.sessionID)
+            // A session that only used non-browser tools has no window; do
+            // not clear another window's halo for it.
+            if (windowId != null) await clearAgentActivity(windowId)
+            // Workflow and desktop-app sessions get a dedicated window. Close
+            // it when the agent goes idle; side-panel windows are never in
+            // this registry, so they are left alone.
+            await closeAutomationWindow(msg.sessionID)
+          } else {
+            await clearAgentActivity()
+          }
+          notifyAgentIdle(msg.sessionID)
+        })()
       }
       break
     }
@@ -292,9 +308,58 @@ async function onMessage(raw: string): Promise<void> {
   }
 }
 
+const pendingAutomationWindows = new Map<string, Promise<number | undefined>>()
+
+async function automationWindowFor(sessionID?: string): Promise<number | undefined> {
+  if (!sessionID) return undefined
+  const bound = await windowForSession(sessionID)
+  if (bound != null) {
+    const existing = await browser.windows.get(bound).catch(() => null)
+    if (existing?.id != null) return existing.id
+    await forgetWindow(bound)
+  }
+  // Parallel first tool calls from one run must share one automation window.
+  const pending = pendingAutomationWindows.get(sessionID)
+  if (pending) return pending
+  const task = (async () => {
+    // This session is not owned by a side panel (a scheduled workflow or a
+    // desktop-app session). Give it its own window instead of driving whichever
+    // Chrome window the user happens to have focused.
+    const created = await browser.windows.create({ url: 'about:blank', focused: false }).catch(() => null)
+    if (created?.id == null) {
+      throw new Error('could not create a dedicated Chrome window for this session')
+    }
+    await markAutomationWindow(sessionID, created.id)
+    await bindSessionWindow(sessionID, created.id)
+    const owner = await windowForSession(sessionID)
+    if (owner !== created.id) {
+      await closeAutomationWindow(sessionID)
+      if (owner != null) return owner
+      throw new Error('could not bind the dedicated Chrome window to this session')
+    }
+    return created.id
+  })()
+  pendingAutomationWindows.set(sessionID, task)
+  try {
+    return await task
+  } finally {
+    pendingAutomationWindows.delete(sessionID)
+  }
+}
+
 async function handleIncomingRequest(id: string, method: string, params: Record<string, unknown>): Promise<void> {
   try {
-    const result = await handleRequest(method, params)
+    const sessionID = typeof params.__sessionID === 'string' ? params.__sessionID : undefined
+    const policy = sessionID ? await getWorkflowSessionPolicy(sessionID) : null
+    const needsWindow =
+      !method.startsWith('workflows.') && method !== 'ping' && method !== 'downloads.list'
+    const windowId = needsWindow
+      ? await automationWindowFor(sessionID)
+      : sessionID
+        ? await windowForSession(sessionID)
+        : undefined
+    const readOnly = policy != null && !policy.allowSubmissions
+    const result = await handleRequest(method, params, { sessionID, windowId, readOnly })
     send({ type: 'response', id, ok: true, result })
   } catch (error) {
     send({ type: 'response', id, ok: false, error: error instanceof Error ? error.message : String(error) })

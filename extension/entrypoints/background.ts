@@ -1,8 +1,10 @@
 import { browser } from 'wxt/browser'
+import { forgetAutomationWindow } from '../lib/automation-windows'
 import { ensureBridgeConnected, initBridge, restartBridge } from '../lib/bridge'
 import { clearConsole, pushConsole } from '../lib/console-buffer'
 import { detachAll, initDebugger, isAttached } from '../lib/debugger'
-import { forgetTab, handleRequest } from '../lib/handlers'
+import { forgetAgentWindow, forgetTab, handleRequest } from '../lib/handlers'
+import { forgetWindow } from '../lib/routing'
 import { healOpenTabs } from '../lib/inject'
 import type { ConsoleEntry } from '../lib/protocol'
 import { settings } from '../lib/settings'
@@ -21,7 +23,13 @@ export default defineBackground(() => {
   }
 
   browser.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
-    const msg = message as { kind?: string; method?: string; params?: Record<string, unknown>; entry?: ConsoleEntry }
+    const msg = message as {
+      kind?: string
+      method?: string
+      params?: Record<string, unknown>
+      windowId?: number
+      entry?: ConsoleEntry
+    }
     if (!msg || typeof msg !== 'object') return undefined
 
     // console entries relayed from content scripts (hook mode)
@@ -40,7 +48,8 @@ export default defineBackground(() => {
         sendResponse({ ok: true, result: 'reconnecting' })
         return undefined
       }
-      handleRequest(msg.method, msg.params ?? {}).then(
+      const context = typeof msg.windowId === 'number' ? { windowId: msg.windowId } : {}
+      handleRequest(msg.method, msg.params ?? {}, context).then(
         (result) => sendResponse({ ok: true, result }),
         (error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }),
       )
@@ -53,6 +62,12 @@ export default defineBackground(() => {
   browser.tabs.onRemoved.addListener((tabId) => {
     clearConsole(tabId)
     forgetTab(tabId)
+  })
+
+  browser.windows.onRemoved.addListener((windowId) => {
+    forgetAgentWindow(windowId)
+    void forgetAutomationWindow(windowId)
+    void forgetWindow(windowId)
   })
 
   browser.tabs.onUpdated.addListener((tabId, changeInfo) => {

@@ -167,8 +167,10 @@ export async function promptAsync(sessionId: string, body: PromptBody): Promise<
   let promptText = text
   if (body.system) {
     try {
+      // Queue the system prompt without starting its own run; the workflow
+      // prompt below starts one run that receives the context first.
       await api.session.synthetic(
-        { sessionID: sessionId, text: body.system, description: 'workflow system prompt' },
+        { sessionID: sessionId, text: body.system, description: 'workflow system prompt', resume: false },
         { signal: AbortSignal.timeout(20_000) },
       )
     } catch {

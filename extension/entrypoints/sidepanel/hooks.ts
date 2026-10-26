@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { browser } from 'wxt/browser'
-import { bridgeStatusItem } from './rpc'
+import { bridgeStatusItem, getWindowId } from './rpc'
 import type { BridgeStatus } from '../../lib/protocol'
 
 export function useBridgeStatus(): BridgeStatus {
@@ -15,6 +15,7 @@ export function useBridgeStatus(): BridgeStatus {
 
 export interface ActiveTab {
   id?: number
+  windowId?: number
   title?: string
   url?: string
 }
@@ -23,8 +24,10 @@ export function useActiveTab(): ActiveTab {
   const [tab, setTab] = useState<ActiveTab>({})
   useEffect(() => {
     const update = async () => {
-      const [active] = await browser.tabs.query({ active: true, lastFocusedWindow: true })
-      if (active) setTab({ id: active.id, title: active.title, url: active.url })
+      const windowId = await getWindowId()
+      if (windowId == null) return
+      const [active] = await browser.tabs.query({ active: true, windowId })
+      if (active) setTab({ id: active.id, windowId: active.windowId, title: active.title, url: active.url })
     }
     void update()
     const onActivated = () => void update()

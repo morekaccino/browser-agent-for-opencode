@@ -12,6 +12,7 @@ export function OnboardingFlow({
   bridge,
   serverUrl,
   health,
+  includePageContext,
   onReconnect,
   onComplete,
 }: {
@@ -19,20 +20,27 @@ export function OnboardingFlow({
   bridge: BridgeStatus
   serverUrl: string
   health: 'ok' | 'down' | 'unknown'
+  includePageContext: boolean
   onReconnect: () => void
-  onComplete: () => void
+  onComplete: (includePageContext: boolean) => void
 }) {
   const [step, setStep] = useState<Step>(initialStep)
-  const [includePageContext, setIncludePageContext] = useState(true)
+  const [sendPageContext, setSendPageContext] = useState(includePageContext)
+  const [skipConnect, setSkipConnect] = useState(false)
 
   const acceptPrivacy = async () => {
     const returning = await settings.onboardingComplete.getValue()
     await Promise.all([
       settings.privacyConsentVersion.setValue(PRIVACY_VERSION),
-      settings.includePageContext.setValue(includePageContext),
+      settings.includePageContext.setValue(sendPageContext),
     ])
     if (returning) {
-      onComplete()
+      onComplete(sendPageContext)
+      return
+    }
+    if (skipConnect && bridge.state === 'connected' && health === 'ok') {
+      await settings.onboardingComplete.setValue(true)
+      onComplete(sendPageContext)
       return
     }
     setStep('connect')
@@ -47,7 +55,7 @@ export function OnboardingFlow({
       return
     }
     await settings.onboardingComplete.setValue(true)
-    onComplete()
+    onComplete(sendPageContext)
   }
 
   const stepIndex = step === 'welcome' ? 0 : step === 'privacy' ? 1 : 2
@@ -98,10 +106,22 @@ export function OnboardingFlow({
             </div>
           </div>
           <div className="onboarding-actions">
-            <Button iconRight="arrow_forward" onClick={() => setStep('privacy')}>
+            <Button
+              iconRight="arrow_forward"
+              onClick={() => {
+                setSkipConnect(false)
+                setStep('privacy')
+              }}
+            >
               Get started
             </Button>
-            <Button variant="text" onClick={() => setStep('privacy')}>
+            <Button
+              variant="text"
+              onClick={() => {
+                setSkipConnect(true)
+                setStep('privacy')
+              }}
+            >
               I already have opencode
             </Button>
           </div>
@@ -136,8 +156,8 @@ export function OnboardingFlow({
           </ul>
           <div className="onboarding-option">
             <Switch
-              checked={includePageContext}
-              onCheckedChange={setIncludePageContext}
+              checked={sendPageContext}
+              onCheckedChange={setSendPageContext}
               label="Send page context with each prompt"
               supporting="Recommended. You can turn this off at any time in the composer."
             />

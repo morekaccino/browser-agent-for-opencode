@@ -6,22 +6,50 @@ import {
   detachIfEphemeral,
   ensureAttached,
   evaluate,
+  hoverPoint,
   insertTextAtFocus,
   isAttached,
   pressKeyCdp,
   screenshot as debuggerScreenshot,
+  selectAllAtFocus,
   snapshotFrames,
 } from './debugger'
 import { ensureContentScript } from './inject'
-import { agentGroupIdItem, settings } from './settings'
+import { windowForSession } from './routing'
+import { agentGroupIdsItem, settings } from './settings'
 import { haloCloudColors, resolveMode } from './theme'
 import { handleWorkflowRequest } from './workflows/api'
 
 const CONSOLE_TAIL = 25
 
-let agentTabId: number | null = null
+export interface RequestContext {
+  sessionID?: string
+  windowId?: number
+  /** Workflow run whose "Allow submissions and messages" switch is off. */
+  readOnly?: boolean
+}
+
+function readOnlyBlocked(action: string): never {
+  throw new Error(
+    `Read-only workflow: ${action} is blocked. Report what you would do instead, ` +
+      'or ask the user to enable "Allow submissions and messages" for this workflow.',
+  )
+}
+
+function isScriptUrl(value: string): boolean {
+  return /^\s*(?:javascript|data|vbscript):/i.test(value)
+}
+
+interface Highlight {
+  kind: 'opencode' | 'temp'
+  groupId: number
+  tabId: number
+}
+
+/** Agent state is per Chrome window so two windows never share a working tab or group. */
+const agentTabByWindow = new Map<number, number>()
+const highlightByWindow = new Map<number, Highlight>()
 const agentOwnedTabs = new Set<number>()
-let highlight: { kind: 'opencode' | 'temp'; groupId: number; tabId: number } | null = null
 
 /** A short, meaningful group title for a tab — its site name. */
 function titleForTab(tab: Browser.tabs.Tab): string {
@@ -51,9 +79,33 @@ async function sendHalo(tabId: number, active: boolean): Promise<void> {
     .catch(() => {})
 }
 
-async function cleanupHighlight(): Promise<void> {
-  const current = highlight
-  highlight = null
+function agentTabFor(windowId?: number): number | undefined {
+  return windowId != null ? agentTabByWindow.get(windowId) : undefined
+}
+
+async function getAgentGroupId(windowId: number): Promise<number | null> {
+  const map = await agentGroupIdsItem.getValue().catch((): Record<string, number> => ({}))
+  const groupId = map[String(windowId)]
+  return typeof groupId === 'number' ? groupId : null
+}
+
+let groupWrite: Promise<void> = Promise.resolve()
+
+async function setAgentGroupId(windowId: number, groupId: number | null): Promise<void> {
+  // Serialize read-modify-write updates when two windows create groups at once.
+  const task = groupWrite.then(async () => {
+    const map = { ...(await agentGroupIdsItem.getValue().catch((): Record<string, number> => ({}))) }
+    if (groupId == null) delete map[String(windowId)]
+    else map[String(windowId)] = groupId
+    await agentGroupIdsItem.setValue(map).catch(() => {})
+  })
+  groupWrite = task.catch(() => {})
+  await task
+}
+
+async function cleanupHighlight(windowId: number): Promise<void> {
+  const current = highlightByWindow.get(windowId)
+  highlightByWindow.delete(windowId)
   if (!current) return
   try {
     if (current.kind === 'temp') {
@@ -67,44 +119,65 @@ async function cleanupHighlight(): Promise<void> {
 }
 
 /** Give the working tab a visible tab-bar treatment (via its tab group). */
-async function applyHighlight(tabId: number): Promise<void> {
+async function applyHighlight(tabId: number, windowId: number): Promise<void> {
   try {
     const tab = await browser.tabs.get(tabId)
-    if (tab.id == null) return
+    if (tab.id == null || tab.windowId !== windowId) return
+    // Grouping changes the tab strip. Skip it while the window is fullscreen:
+    // Chrome can drop out of fullscreen to show the new group.
+    const win = await browser.windows.get(windowId).catch(() => null)
+    if (win?.state === 'fullscreen') return
     const none = browser.tabGroups.TAB_GROUP_ID_NONE
     if (tab.groupId != null && tab.groupId !== none) {
       const group = await browser.tabGroups.get(tab.groupId).catch(() => null)
-      const ours = group ? (await agentGroupIdItem.getValue()) === group.id : false
+      const ours = group?.windowId === windowId && (await getAgentGroupId(windowId)) === group.id
       if (ours) {
         await browser.tabGroups.update(tab.groupId, { color: 'orange' }).catch(() => {})
-        highlight = { kind: 'opencode', groupId: tab.groupId, tabId }
+        highlightByWindow.set(windowId, { kind: 'opencode', groupId: tab.groupId, tabId })
       }
       return // user's own group — don't touch it
     }
     const groupId = await browser.tabs.group({ tabIds: [tabId] })
     if (groupId == null) return
     await browser.tabGroups.update(groupId, { title: `${titleForTab(tab)} · working`, color: 'orange' }).catch(() => {})
-    highlight = { kind: 'temp', groupId, tabId }
+    highlightByWindow.set(windowId, { kind: 'temp', groupId, tabId })
   } catch {
     /* tab groups unavailable — page halo still applies */
   }
 }
 
 /** Rename (and possibly re-group) the agent's tabs — the agent names it after the task. */
-async function nameAgentGroup(title: string, tabIdParam?: number): Promise<string> {
-  const tab = await resolveTab(tabIdParam ?? agentTabId ?? undefined)
+async function nameAgentGroup(title: string, tabIdParam?: number, windowId?: number): Promise<string> {
+  const tab = await resolveTab(tabIdParam ?? agentTabFor(windowId), windowId)
   if (tab.id == null) throw new Error('tab has no id')
+  if (tab.windowId == null) throw new Error('tab has no window')
+  const tabWindowId = tab.windowId
   const none = browser.tabGroups.TAB_GROUP_ID_NONE
   let groupId: number | null = null
   if (tab.groupId != null && tab.groupId !== none) {
-    groupId = tab.groupId
+    const group = await browser.tabGroups.get(tab.groupId).catch(() => null)
+    const current = highlightByWindow.get(tabWindowId)
+    const ours = group?.windowId === tabWindowId && (await getAgentGroupId(tabWindowId)) === group.id
+    // The snapshot highlight may have put this tab in a temporary "working"
+    // group. Naming it promotes that group to the agent group.
+    const ourWorkingGroup =
+      group?.windowId === tabWindowId && current?.groupId === group.id && current.kind === 'temp'
+    if (!ours && !ourWorkingGroup) {
+      throw new Error('that tab is in the user’s tab group; open a new tab for this task instead')
+    }
+    if (ourWorkingGroup && group) {
+      await setAgentGroupId(tabWindowId, group.id)
+      highlightByWindow.set(tabWindowId, { kind: 'opencode', groupId: group.id, tabId: tab.id })
+    }
+    groupId = group?.id ?? null
   } else {
-    const stored = await agentGroupIdItem.getValue()
-    groupId = stored != null ? ((await browser.tabGroups.get(stored).catch(() => null))?.id ?? null) : null
+    const stored = await getAgentGroupId(tabWindowId)
+    const storedGroup = stored != null ? await browser.tabGroups.get(stored).catch(() => null) : null
+    groupId = storedGroup?.windowId === tabWindowId ? storedGroup.id : null
     if (groupId == null) {
       groupId = await browser.tabs.group({ tabIds: [tab.id] }).catch(() => null)
       if (groupId == null) throw new Error('could not create a tab group')
-      await agentGroupIdItem.setValue(groupId)
+      await setAgentGroupId(tabWindowId, groupId)
     } else {
       await browser.tabs.group({ tabIds: [tab.id], groupId }).catch(() => {})
     }
@@ -113,17 +186,21 @@ async function nameAgentGroup(title: string, tabIdParam?: number): Promise<strin
   return `tab group ${groupId} named "${title}"`
 }
 
-/** Light the halo (page + tab bar) on the tab the agent is working on; at most one at a time. */
+/** Light the halo (page + tab bar) on the tab the agent is working on; at most one per window. */
 async function markAgentTab(tabId: number): Promise<void> {
-  const previous = agentTabId
-  agentTabId = tabId
+  const tab = await browser.tabs.get(tabId).catch(() => null)
+  if (!tab || tab.id == null || tab.windowId == null) return
+  const windowId = tab.windowId
+  const previous = agentTabByWindow.get(windowId)
+  agentTabByWindow.set(windowId, tabId)
   void sendHalo(tabId, true)
   if (previous != null && previous !== tabId) void sendHalo(previous, false)
 
   if (previous !== tabId) {
     void (async () => {
-      if (highlight && highlight.tabId !== tabId) await cleanupHighlight()
-      if (!highlight || highlight.tabId !== tabId) await applyHighlight(tabId)
+      const current = highlightByWindow.get(windowId)
+      if (current && current.tabId !== tabId) await cleanupHighlight(windowId)
+      if (!highlightByWindow.has(windowId)) await applyHighlight(tabId, windowId)
     })()
   }
 
@@ -132,28 +209,30 @@ async function markAgentTab(tabId: number): Promise<void> {
   void (async () => {
     try {
       if (!(await settings.followAgent.getValue())) return
-      const tab = await browser.tabs.get(tabId)
-      if (tab.id == null) return
-      await browser.tabs.update(tab.id, { active: true }).catch(() => {})
+      const latest = await browser.tabs.get(tabId)
+      if (latest.id == null) return
+      await browser.tabs.update(latest.id, { active: true }).catch(() => {})
     } catch {
       /* tab gone */
     }
   })()
 }
 
-/** Tabs the agent opens join one shared group, named after the first site it touched. */
+/** Tabs the agent opens join one shared group per window, named after the first site it touched. */
 async function groupAgentTab(tabId: number): Promise<void> {
   try {
     agentOwnedTabs.add(tabId)
-    const stored = await agentGroupIdItem.getValue()
-    let groupId = stored != null ? ((await browser.tabGroups.get(stored).catch(() => null))?.id ?? null) : null
+    const tab = await browser.tabs.get(tabId).catch(() => null)
+    if (!tab || tab.windowId == null) return
+    const windowId = tab.windowId
+    const stored = await getAgentGroupId(windowId)
+    const storedGroup = stored != null ? await browser.tabGroups.get(stored).catch(() => null) : null
+    const groupId = storedGroup?.windowId === windowId ? storedGroup.id : null
     if (groupId == null) {
       const created = await browser.tabs.group({ tabIds: [tabId] }).catch(() => null)
       if (created == null) return
-      groupId = created
-      await agentGroupIdItem.setValue(groupId)
-      const tab = await browser.tabs.get(tabId).catch(() => null)
-      await browser.tabGroups.update(groupId, { title: tab ? titleForTab(tab) : 'ai tabs', color: 'blue' }).catch(() => {})
+      await setAgentGroupId(windowId, created)
+      await browser.tabGroups.update(created, { title: titleForTab(tab), color: 'blue' }).catch(() => {})
     } else {
       await browser.tabs.group({ tabIds: [tabId], groupId }).catch(() => {})
     }
@@ -162,12 +241,23 @@ async function groupAgentTab(tabId: number): Promise<void> {
   }
 }
 
+/** Drop per-window agent state when its Chrome window closes. */
+export function forgetAgentWindow(windowId: number): void {
+  const tabId = agentTabByWindow.get(windowId)
+  if (tabId != null) agentOwnedTabs.delete(tabId)
+  agentTabByWindow.delete(windowId)
+  highlightByWindow.delete(windowId)
+  void setAgentGroupId(windowId, null)
+}
+
 export function forgetTab(tabId: number): void {
   agentOwnedTabs.delete(tabId)
-  if (agentTabId === tabId) agentTabId = null
-  if (highlight?.tabId === tabId) {
-    const current = highlight
-    highlight = null
+  for (const [windowId, id] of agentTabByWindow) {
+    if (id === tabId) agentTabByWindow.delete(windowId)
+  }
+  for (const [windowId, current] of highlightByWindow) {
+    if (current.tabId !== tabId) continue
+    highlightByWindow.delete(windowId)
     void (async () => {
       try {
         if (current.kind === 'opencode') await browser.tabGroups.update(current.groupId, { color: 'blue' }).catch(() => {})
@@ -179,20 +269,31 @@ export function forgetTab(tabId: number): void {
 }
 
 /** Agent run finished — kill the halo and tab-bar highlight immediately. */
-export async function clearAgentActivity(): Promise<void> {
-  const tabId = agentTabId
-  agentTabId = null
-  if (tabId != null) void sendHalo(tabId, false)
-  await cleanupHighlight()
+export async function clearAgentActivity(windowId?: number): Promise<void> {
+  const windows = windowId != null ? [windowId] : Array.from(agentTabByWindow.keys())
+  for (const win of windows) {
+    const tabId = agentTabByWindow.get(win)
+    agentTabByWindow.delete(win)
+    if (tabId != null) void sendHalo(tabId, false)
+    await cleanupHighlight(win)
+  }
+  if (windowId == null) {
+    for (const win of Array.from(highlightByWindow.keys())) await cleanupHighlight(win)
+  }
 }
 
-export async function resolveTab(tabId?: number): Promise<Browser.tabs.Tab> {
+export async function resolveTab(tabId?: number, windowId?: number): Promise<Browser.tabs.Tab> {
   if (tabId != null) {
-    try {
-      return await browser.tabs.get(tabId)
-    } catch {
-      throw new Error(`tab ${tabId} does not exist`)
+    const tab = await browser.tabs.get(tabId).catch(() => null)
+    if (!tab) throw new Error(`tab ${tabId} does not exist`)
+    if (windowId != null && tab.windowId !== windowId) {
+      throw new Error(`tab ${tabId} is in another Chrome window; this session is scoped to window ${windowId}`)
     }
+    return tab
+  }
+  if (windowId != null) {
+    const [active] = await browser.tabs.query({ active: true, windowId })
+    if (active) return active
   }
   const [active] = await browser.tabs.query({ active: true, lastFocusedWindow: true })
   if (!active) {
@@ -304,24 +405,36 @@ export interface ScreenshotResult {
   tab: TabInfo
 }
 
-export async function handleRequest(method: string, params: Record<string, any> = {}): Promise<unknown> {
+export async function handleRequest(
+  method: string,
+  params: Record<string, any> = {},
+  context: RequestContext = {},
+): Promise<unknown> {
   if (method.startsWith('workflows.')) return handleWorkflowRequest(method, params)
 
   const tabIdParam: number | undefined = typeof params.tab_id === 'number' ? params.tab_id : undefined
+  const windowId = context.windowId
+  const readOnly = context.readOnly === true
+  const resolve = (tabId?: number) => resolveTab(tabId, windowId)
 
   switch (method) {
     case 'ping':
       return 'pong'
 
     case 'tabs.list': {
-      const tabs = await browser.tabs.query({})
+      // A session without a window must not be shown the user's tabs.
+      if (windowId == null && context.sessionID) return '(no tabs yet)'
+      const tabs = await browser.tabs.query(windowId != null ? { windowId } : {})
       return formatTabList(tabs)
     }
 
     case 'tabs.new': {
+      const url = typeof params.url === 'string' && params.url ? params.url : 'about:blank'
+      if (readOnly && isScriptUrl(url)) readOnlyBlocked('opening a script URL in a new tab')
       const tab = await browser.tabs.create({
-        url: typeof params.url === 'string' && params.url ? params.url : 'about:blank',
+        url,
         active: params.active !== false,
+        ...(windowId != null ? { windowId } : {}),
       })
       if (tab.id != null) void groupAgentTab(tab.id)
       if (tab.id != null && tab.status !== 'complete') await waitForLoad(tab.id)
@@ -330,7 +443,7 @@ export async function handleRequest(method: string, params: Record<string, any> 
     }
 
     case 'tabs.close': {
-      const tab = await resolveTab(tabIdParam)
+      const tab = await resolve(tabIdParam)
       if (tab.id == null) throw new Error('tab has no id')
       forgetTab(tab.id)
       await browser.tabs.remove(tab.id)
@@ -338,16 +451,20 @@ export async function handleRequest(method: string, params: Record<string, any> 
     }
 
     case 'tabs.activate': {
-      const tab = await resolveTab(tabIdParam)
-      if (tab.id == null || tab.windowId == null) throw new Error('tab has no id')
+      const tab = await resolve(tabIdParam)
+      if (tab.id == null) throw new Error('tab has no id')
+      // Do not raise the window: activating a tab in the agent's window must
+      // not pull focus away from the window the user is working in.
       await browser.tabs.update(tab.id, { active: true })
-      await browser.windows.update(tab.windowId, { focused: true }).catch(() => {})
       return `activated tab ${tab.id}: ${tab.title ?? ''}`
     }
 
     case 'agent.reveal': {
-      if (agentTabId == null) throw new Error('the agent is not working on a tab right now')
-      const tab = await browser.tabs.get(agentTabId).catch(() => null)
+      const sessionID = typeof params.sessionID === 'string' ? params.sessionID : context.sessionID
+      const boundWindow = sessionID ? ((await windowForSession(sessionID)) ?? windowId) : windowId
+      const tabId = agentTabFor(boundWindow)
+      if (tabId == null) throw new Error('the agent is not working on a tab right now')
+      const tab = await browser.tabs.get(tabId).catch(() => null)
       if (!tab || tab.id == null) throw new Error('the agent tab was closed')
       await browser.tabs.update(tab.id, { active: true })
       if (tab.windowId != null) await browser.windows.update(tab.windowId, { focused: true }).catch(() => {})
@@ -357,11 +474,12 @@ export async function handleRequest(method: string, params: Record<string, any> 
     case 'tabs.group': {
       const title = String(params.title ?? '').trim()
       if (!title) throw new Error('title is required (a short, meaningful name for the group)')
-      return nameAgentGroup(title.slice(0, 40), tabIdParam)
+      return nameAgentGroup(title.slice(0, 40), tabIdParam, windowId)
     }
 
     case 'upload': {
-      const tab = await resolveTab(tabIdParam)
+      if (readOnly) readOnlyBlocked('attaching local files to a page')
+      const tab = await resolve(tabIdParam)
       if (tab.id == null) throw new Error('tab has no id')
       const paths = Array.isArray(params.paths) ? params.paths.map((p: unknown) => String(p)) : []
       if (paths.length === 0) throw new Error('paths is required (absolute file paths on this machine)')
@@ -402,7 +520,7 @@ export async function handleRequest(method: string, params: Record<string, any> 
     }
 
     case 'snapshot': {
-      const tab = await resolveTab(tabIdParam)
+      const tab = await resolve(tabIdParam)
       if (tab.id == null) throw new Error('tab has no id')
       await markAgentTab(tab.id)
       const page = await sendToContent<{ text: string; truncated: boolean; lineCount: number }>(tab.id, 'snapshot')
@@ -449,11 +567,14 @@ export async function handleRequest(method: string, params: Record<string, any> 
     }
 
     case 'navigate': {
-      const tab = await resolveTab(tabIdParam)
+      const tab = await resolve(tabIdParam)
       if (tab.id == null) throw new Error('tab has no id')
       await markAgentTab(tab.id)
       let url = String(params.url ?? '').trim()
       if (!url) throw new Error('url is required')
+      if (readOnly && !['back', 'forward', 'reload'].includes(url) && isScriptUrl(url)) {
+        readOnlyBlocked('navigating to a script URL')
+      }
       if (url === 'back') {
         await browser.tabs.goBack(tab.id)
       } else if (url === 'forward') {
@@ -470,15 +591,18 @@ export async function handleRequest(method: string, params: Record<string, any> 
     }
 
     case 'click':
-    case 'hover':
     case 'highlight':
     case 'select':
     case 'scroll':
     case 'wait_for': {
-      const tab = await resolveTab(tabIdParam)
+      const tab = await resolve(tabIdParam)
       if (tab.id == null) throw new Error('tab has no id')
+      const coordinateClick = method === 'click' && typeof params.x === 'number' && typeof params.y === 'number'
+      if (coordinateClick && readOnly) {
+        readOnlyBlocked('coordinate clicks, because the target cannot be inspected')
+      }
       await markAgentTab(tab.id)
-      if (method === 'click' && typeof params.x === 'number' && typeof params.y === 'number') {
+      if (coordinateClick) {
         try {
           await clickPoint(tab.id, params.x, params.y)
         } finally {
@@ -486,44 +610,92 @@ export async function handleRequest(method: string, params: Record<string, any> 
         }
         return `clicked with a real mouse event at viewport (${Math.round(params.x)}, ${Math.round(params.y)}) — works inside iframes`
       }
-      const result = await sendToContent<string>(tab.id, method, params)
+      const contentParams = method === 'click' && readOnly ? { ...params, read_only: true } : params
+      const result = await sendToContent<string>(tab.id, method, contentParams)
       return result
     }
 
-    case 'type': {
-      const tab = await resolveTab(tabIdParam)
+    case 'hover': {
+      const tab = await resolve(tabIdParam)
       if (tab.id == null) throw new Error('tab has no id')
       await markAgentTab(tab.id)
+      let x: number
+      let y: number
+      let description = ''
       if (typeof params.x === 'number' && typeof params.y === 'number') {
+        x = params.x
+        y = params.y
+      } else {
+        const point = await sendToContent<{ x: number; y: number; description: string }>(tab.id, 'center', params)
+        x = point.x
+        y = point.y
+        description = point.description
+      }
+      try {
+        await hoverPoint(tab.id, x, y)
+      } finally {
+        await detachIfEphemeral(tab.id)
+      }
+      return `hovered${description ? ` ${description}` : ''} at viewport (${Math.round(x)}, ${Math.round(y)})`
+    }
+
+    case 'type': {
+      const tab = await resolve(tabIdParam)
+      if (tab.id == null) throw new Error('tab has no id')
+      if (readOnly && params.submit) readOnlyBlocked('submitting a form')
+      await markAgentTab(tab.id)
+      if (typeof params.x === 'number' && typeof params.y === 'number') {
+        const text = String(params.text ?? '')
+        const clear = params.clear !== false
         try {
           await clickPoint(tab.id, params.x, params.y)
-          await insertTextAtFocus(tab.id, String(params.text ?? ''))
+          await sleep(50)
+          if (clear) await selectAllAtFocus(tab.id)
+          await insertTextAtFocus(tab.id, text)
+          if (params.submit) {
+            await sleep(50)
+            await pressKeyCdp(tab.id, 'Enter')
+          }
         } finally {
           await detachIfEphemeral(tab.id)
         }
-        return `clicked at viewport (${Math.round(params.x)}, ${Math.round(params.y)}) and typed ${JSON.stringify(String(params.text ?? '').slice(0, 80))} — works inside iframes`
+        return (
+          `clicked at viewport (${Math.round(params.x)}, ${Math.round(params.y)}) and ` +
+          `${clear ? 'replaced the field content with' : 'typed'} ${JSON.stringify(text.slice(0, 80))}` +
+          `${params.submit ? ' then pressed Enter' : ''} — works inside iframes`
+        )
       }
       return await sendToContent<string>(tab.id, method, params)
     }
 
     case 'press': {
-      const tab = await resolveTab(tabIdParam)
+      const tab = await resolve(tabIdParam)
       if (tab.id == null) throw new Error('tab has no id')
-      await markAgentTab(tab.id)
-      if (typeof params.x === 'number' && typeof params.y === 'number') {
-        try {
-          await clickPoint(tab.id, params.x, params.y)
-          await pressKeyCdp(tab.id, String(params.key ?? 'Enter'))
-        } finally {
-          await detachIfEphemeral(tab.id)
-        }
-        return `pressed "${String(params.key ?? 'Enter')}" after clicking at viewport (${Math.round(params.x)}, ${Math.round(params.y)}) — works inside iframes`
+      const key = String(params.key ?? 'Enter')
+      if (readOnly && (key === 'Enter' || key === ' ')) {
+        readOnlyBlocked(`pressing ${JSON.stringify(key)}, because it can submit or activate a control`)
       }
-      return await sendToContent<string>(tab.id, method, params)
+      await markAgentTab(tab.id)
+      try {
+        if (typeof params.x === 'number' && typeof params.y === 'number') {
+          await clickPoint(tab.id, params.x, params.y)
+          await sleep(50)
+          await pressKeyCdp(tab.id, key)
+          return `pressed "${key}" after clicking at viewport (${Math.round(params.x)}, ${Math.round(params.y)}) — works inside iframes`
+        }
+        let focusMessage = ''
+        if (params.ref || params.selector || params.text) {
+          focusMessage = ` on ${await sendToContent<string>(tab.id, 'focus', params)}`
+        }
+        await pressKeyCdp(tab.id, key)
+        return `pressed "${key}"${focusMessage}`
+      } finally {
+        await detachIfEphemeral(tab.id)
+      }
     }
 
     case 'console.read': {
-      const tab = await resolveTab(tabIdParam)
+      const tab = await resolve(tabIdParam)
       if (tab.id == null) throw new Error('tab has no id')
       let warning: string | null = null
       if ((await settings.consoleEngine.getValue()) === 'debugger' && !isAttached(tab.id)) {
@@ -540,7 +712,7 @@ export async function handleRequest(method: string, params: Record<string, any> 
     }
 
     case 'console.clear': {
-      const tab = await resolveTab(tabIdParam)
+      const tab = await resolve(tabIdParam)
       if (tab.id == null) throw new Error('tab has no id')
       clearConsole(tab.id)
       await sendToContent(tab.id, 'clear_hook').catch(() => {})
@@ -548,7 +720,8 @@ export async function handleRequest(method: string, params: Record<string, any> 
     }
 
     case 'console.exec': {
-      const tab = await resolveTab(tabIdParam)
+      if (readOnly) readOnlyBlocked('executing JavaScript')
+      const tab = await resolve(tabIdParam)
       if (tab.id == null) throw new Error('tab has no id')
       const expression = String(params.expression ?? '')
       if (!expression) throw new Error('expression is required')
@@ -579,9 +752,19 @@ export async function handleRequest(method: string, params: Record<string, any> 
     }
 
     case 'screenshot': {
-      const tab = await resolveTab(tabIdParam)
+      const tab = await resolve(tabIdParam)
       if (tab.id == null) throw new Error('tab has no id')
       const fullPage = params.full_page === true
+
+      // Automatic page-context screenshots attach Chrome's debugger, which can
+      // bring the window out of fullscreen. The explicit browser_screenshot
+      // tool still works; this only skips the best-effort context capture.
+      if (params.context_only === true && tab.windowId != null) {
+        const win = await browser.windows.get(tab.windowId).catch(() => null)
+        if (win?.state === 'fullscreen') {
+          throw new Error('page context screenshot skipped while the browser is in fullscreen')
+        }
+      }
 
       // Bring a background tab forward if necessary, but never change the
       // browser window state. Calling windows.update(state: 'normal') would

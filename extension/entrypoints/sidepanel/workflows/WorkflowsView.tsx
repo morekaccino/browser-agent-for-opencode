@@ -118,8 +118,14 @@ function WorkflowCard({
         <MiniSwitch
           checked={workflow.enabled}
           onCheckedChange={onToggle}
-          label={workflow.enabled ? `Disable ${workflow.name}` : `Enable ${workflow.name}`}
-          disabled={busy === `toggle:${workflow.id}`}
+          label={
+            draft
+              ? 'Review this draft in the editor before enabling it'
+              : workflow.enabled
+                ? `Disable ${workflow.name}`
+                : `Enable ${workflow.name}`
+          }
+          disabled={draft || busy === `toggle:${workflow.id}`}
         />
       </div>
 
@@ -342,7 +348,7 @@ export function WorkflowsView({
             <span>Next run</span>
             <strong>{selected.nextRunAt ? formatTimestampInZone(selected.nextRunAt, selected.timezone) : 'Paused'}</strong>
             <span>Start URL</span>
-            <strong>{selected.startUrl || 'Active tab'}</strong>
+            <strong>{selected.startUrl || 'Dedicated window (blank tab)'}</strong>
             <span>Timeout</span>
             <strong>{selected.timeoutMinutes} minutes</strong>
           </div>
@@ -398,10 +404,7 @@ export function WorkflowsView({
       models={models}
       agents={agents}
       onSave={saveEditor}
-      onClose={() => {
-        setEditing(null)
-        if (mode !== 'expanded' && !selectedId) closeOverlay()
-      }}
+      onClose={() => setEditing(null)}
     />
   ) : null
 
@@ -414,14 +417,14 @@ export function WorkflowsView({
         actions={
           <>
             <IconButton icon="add" label="New workflow" onClick={() => openEditor()} />
-            {mode === 'expanded' && selected ? (
+            {mode === 'expanded' && selected && !editing ? (
               <IconButton icon="close" label="Close detail" onClick={() => setSelectedId(null)} />
             ) : null}
           </>
         }
       />
 
-      <div className={`workflows-body${sorted.length === 0 && mode === 'expanded' ? ' is-empty' : ''}`}>
+      <div className={`workflows-body${sorted.length === 0 && !editing && mode === 'expanded' ? ' is-empty' : ''}`}>
         <div className="workflow-list-pane">
           {error ? (
             <div className="inline-notice is-error" role="alert">
@@ -492,7 +495,9 @@ export function WorkflowsView({
           )}
         </div>
 
-        {mode === 'expanded' && sorted.length > 0 ? <div className="workflow-detail-pane">{editor ?? detail}</div> : null}
+        {mode === 'expanded' && (sorted.length > 0 || editing) ? (
+          <div className="workflow-detail-pane">{editor ?? detail}</div>
+        ) : null}
       </div>
 
       {mode !== 'expanded' && (editing || selectedId) ? (

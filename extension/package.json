@@ -14,7 +14,7 @@
     "prezip": "node scripts/copy-plugin.mjs",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
-    "compile": "tsc --noEmit",
+    "compile": "tsc --noEmit && tsc -p ../plugin/tsconfig.json --noEmit",
     "postinstall": "wxt prepare"
   },
   "dependencies": {

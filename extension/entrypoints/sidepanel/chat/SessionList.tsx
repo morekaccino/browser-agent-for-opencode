@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { SessionInfo } from '@opencode/client'
-import type { SessionRunStatus } from '../useOpencode'
+import { isRunActive, type SessionRunStatus } from '../useOpencode'
 import { Button, IconButton, Menu, SearchField, TextInput } from '../design/primitives'
 
 function timeAgo(ts: number): string {
@@ -140,7 +140,8 @@ export function SessionList({
               <div className="session-group-label">{section.label}</div>
               {section.rows.map((session) => {
                 const selected = session.id === currentId
-                const busy = statuses[session.id] === 'busy'
+                const status = statuses[session.id]
+                const busy = isRunActive(status)
                 return (
                   <div key={session.id} className={`session-item${selected ? ' is-selected' : ''}`}>
                     <button
@@ -155,11 +156,16 @@ export function SessionList({
                       <span className="session-item-text">
                         <span className="session-item-title">
                           <span className="session-item-title-text">{displayTitle(session)}</span>
-                          {busy ? <span className="session-busy-dot" aria-label="Working" /> : null}
+                          {busy ? (
+                            <span
+                              className="session-busy-dot"
+                              aria-label={status === 'retry' ? 'Retrying' : 'Working'}
+                            />
+                          ) : null}
                         </span>
                         <span className="session-item-meta">
                           {timeAgo(session.time?.updated ?? session.time?.created ?? Date.now())}
-                          {busy ? ' · working' : ''}
+                          {busy ? (status === 'retry' ? ' · retrying' : ' · working') : ''}
                         </span>
                       </span>
                       {selected ? <span className="msym sm session-check" aria-hidden="true">check</span> : null}

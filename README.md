@@ -26,6 +26,8 @@ This is an independent community project. It is **not affiliated with, endorsed 
 
 Every browser tool works from any opencode session — panel, TUI, or `opencode run` — because the tools live in the opencode plugin, not in the extension. Multiple opencode processes are fine: the first binds the bridge port, later ones join through it.
 
+Each side panel is bound to its Chrome window. Browser tools for that session stay in that window: tab lists, snapshots, screenshots, new tabs, tab groups, and the working-tab halo are all window-scoped. A second side panel gets its own session and its own window context. Sessions with no side panel (scheduled workflows, desktop-app sessions) get a dedicated automation window instead of acting on the window you are using. If a session is already owned by another live Chrome window, the panel will not send into it — use a different session for that window (or close the window that owns it).
+
 ## Requirements
 
 - **Node.js 20+** for the build and helper scripts (users installing from the Chrome Web Store do not need Node).
@@ -76,7 +78,7 @@ Full setup and troubleshooting: <https://morekaccino.github.io/browser-agent-for
 
 A workflow is one self-contained instruction that runs on a schedule — for example: *“Open the project dashboard, check for failed builds or new issues, and summarize what needs attention.”* The runner lives in the extension service worker, so it keeps working when the side panel is closed.
 
-- **Read-only by default.** A workflow cannot submit forms, send messages, post content, or complete purchases unless you enable **Allow submissions and messages** on that workflow and review its instructions.
+- **Read-only by default.** Read-only runs block native form submissions, send/post-style controls, file uploads, and JavaScript execution; the agent is also told not to submit, send, post, or purchase. Because pages can implement actions in JavaScript, treat this as a guardrail rather than a sandbox — review the instructions and use trusted accounts. Enable **Allow submissions and messages** on the workflow only when those actions are intended.
 - **Requirements at fire time:** Chrome running, opencode V2 running, and the browser bridge connected. If the service is briefly unavailable, the run retries for up to 10 minutes, then fails with a clear reason.
 - **Missed runs are skipped.** If Chrome was closed when a workflow was due, the next launch records a *Missed* entry and advances to the next occurrence.
 - **Unattended runs cannot ask questions.** V2 forms/questions are auto-cancelled. Permission prompts are auto-approved by default; turn that off per workflow if you want to approve actions manually.
@@ -86,7 +88,7 @@ A workflow is one self-contained instruction that runs on a schedule — for exa
 
 ## Console engines
 
-- **hook** (default): captures `console.*`, uncaught errors, and promise rejections from page load without Chrome warnings. `browser_console` exec always uses Chrome's Debugger API, briefly attaching the debugger (a yellow banner may appear), then detaching.
+- **hook** (default): captures `console.*`, uncaught errors, and promise rejections from page load without Chrome warnings. `browser_console` exec, `browser_press`, `browser_hover`, and coordinate-based typing use Chrome's Debugger API, briefly attaching the debugger (a yellow banner may appear), then detaching.
 - **debugger**: keeps Chrome's debugger attached for DevTools-grade fidelity, including browser-level errors and logs from before injection. Chrome shows a yellow “debugging” banner and DevTools cannot be open on that tab while attached.
 
 Agent-supplied JavaScript is **only** executed through `chrome.debugger` → `Runtime.evaluate`. The extension contains no `eval()` or `new Function()`.
@@ -170,7 +172,7 @@ store/       listing copy, permission justifications, screenshots, checklist
 - **“Browser extension is not connected”** — check the bridge dot in the side panel and click *reconnect bridge*. Make sure the plugin is in the opencode plugins folder and restart opencode after installing it.
 - **Server unreachable** — run `opencode service status` and `opencode api get /api/info`. If you use a foreground `opencode serve` that is not the registered service, enter its URL/password manually and turn auto-discover off.
 - **401 / authentication required** — V2 uses the password in `~/.local/state/opencode/service.json`; `npm run status` prints it locally. For a server started with `OPENCODE_SERVER_PASSWORD`, enter that password manually.
-- **`console.exec` cannot attach** — close DevTools on that tab; Chrome does not allow the debugger to attach while DevTools is open.
+- **`console.exec`, `browser_press`, `browser_hover`, coordinate typing, or screenshots cannot attach** — close DevTools on that tab; Chrome does not allow the debugger to attach while DevTools is open.
 - **A page cannot be scripted** — `chrome://`, the Chrome Web Store, and the PDF viewer are protected. `file://` pages require “Allow access to file URLs” in the extension details.
 - **Local network access** — newer Chrome versions gate some loopback requests. Use `localhost` for the opencode server and allow local network access for the extension if Chrome blocks the bridge WebSocket.
 - **Extension won't load on Windows** — select the folder that contains `manifest.json` (`extension\.output\chrome-mv3`) and make sure the build completed.

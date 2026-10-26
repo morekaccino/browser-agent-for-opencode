@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
+import { sessionOwnedByOtherWindow } from '../../lib/routing'
 import { PRIVACY_VERSION, settings } from '../../lib/settings'
-import { callBackground } from './rpc'
+import { callBackground, getWindowId } from './rpc'
 import { useActiveTab, useBridgeStatus } from './hooks'
 import { useOpencode } from './useOpencode'
 import { useWorkflows } from './useWorkflows'
@@ -13,6 +14,23 @@ import { NavDrawer } from './shell/NavDrawer'
 import { NavRail, type Destination } from './shell/NavRail'
 import { WorkflowsView } from './workflows/WorkflowsView'
 import type { AttachedFile } from './attachments'
+
+/** A hung tab/screenshot call must not stop the user's message from being sent. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve(null), ms)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}
 
 export default function App() {
   const { mode } = useLayoutMode()
@@ -29,6 +47,7 @@ export default function App() {
   const [destination, setDestination] = useState<Destination>('chat')
   const [navOpen, setNavOpen] = useState(false)
   const [contextError, setContextError] = useState<string | null>(null)
+  const [currentWindowId, setCurrentWindowId] = useState<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -77,7 +96,18 @@ export default function App() {
     }
   }, [])
 
-  const opencode = useOpencode(serverUrl, auth)
+  useEffect(() => {
+    let cancelled = false
+    void getWindowId().then((id) => {
+      if (!cancelled) setCurrentWindowId(id)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const windowId = currentWindowId ?? tab.windowId ?? null
+  const opencode = useOpencode(serverUrl, auth, windowId)
 
   useEffect(() => {
     if (!contextError) return
@@ -92,7 +122,9 @@ export default function App() {
   }
 
   const revealAgentTab = () => {
-    void callBackground('agent.reveal').catch((error) => {
+    void callBackground('agent.reveal', {
+      ...(opencode.currentId ? { sessionID: opencode.currentId } : {}),
+    }).catch((error) => {
       setContextError(error instanceof Error ? error.message : String(error))
     })
   }
@@ -109,9 +141,12 @@ export default function App() {
 
   const send = async (text: string, files: AttachedFile[] = []): Promise<boolean> => {
     setContextError(null)
+    if (opencode.currentId && windowId != null && (await sessionOwnedByOtherWindow(opencode.currentId, windowId))) {
+      setContextError('This session is active in another Chrome window. Use the session for this window instead.')
+      return false
+    }
     if (text.startsWith('/') && files.length === 0) {
-      await opencode.runCommand(text)
-      return true
+      return opencode.runCommand(text)
     }
 
     let system: string | undefined
@@ -120,13 +155,20 @@ export default function App() {
       let pageBlock = ''
       let tabsBlock = ''
       try {
-        const snapshot = await callBackground<string>('snapshot', { include_console: false })
-        pageBlock = `<current-page>\n${snapshot}\n</current-page>`
+        const snapshot = await withTimeout(
+          callBackground<string>('snapshot', {
+            include_console: false,
+            include_iframes: false,
+            ...(tab.id != null ? { tab_id: tab.id } : {}),
+          }),
+          8000,
+        )
+        if (snapshot) pageBlock = `<current-page>\n${snapshot}\n</current-page>`
       } catch (error) {
         setContextError(`page context failed: ${error instanceof Error ? error.message : String(error)}`)
       }
       try {
-        const tabs = await callBackground<string>('tabs.list')
+        const tabs = await withTimeout(callBackground<string>('tabs.list'), 4000)
         if (tabs && tabs !== '(no tabs)') {
           tabsBlock = `<open-tabs>\n${tabs.length > 4000 ? `${tabs.slice(0, 4000)}…` : tabs}\n</open-tabs>`
         }
@@ -138,13 +180,23 @@ export default function App() {
           (model) => model.value === (opencode.model ? `${opencode.model.providerID}/${opencode.model.modelID}` : ''),
         )
         if (activeModel?.supportsImages) {
-          let shot = (await callBackground('screenshot', { full_page: true }).catch(() => null)) as
-            | { base64?: string }
-            | null
+          let shot = await withTimeout(
+            callBackground<{ base64?: string }>('screenshot', {
+              full_page: true,
+              context_only: true,
+              ...(tab.id != null ? { tab_id: tab.id } : {}),
+            }),
+            15000,
+          ).catch(() => null)
           if (shot?.base64 && shot.base64.length > 8_000_000) {
-            shot = (await callBackground('screenshot', { full_page: false }).catch(() => null)) as
-              | { base64?: string }
-              | null
+            shot = await withTimeout(
+              callBackground<{ base64?: string }>('screenshot', {
+                full_page: false,
+                context_only: true,
+                ...(tab.id != null ? { tab_id: tab.id } : {}),
+              }),
+              10000,
+            ).catch(() => null)
           }
           if (shot?.base64) {
             contextFiles = [
@@ -165,7 +217,7 @@ export default function App() {
           pageBlock &&
             `Here is a fresh snapshot of their active tab (element refs may go stale after navigation — take a new browser_snapshot when acting):\n\n${pageBlock}`,
           tabsBlock &&
-            `These are all of the user's open tabs; pick whichever is relevant (the active tab is usually the right starting point) and pass its tab id to browser_* tools when working on another tab:\n\n${tabsBlock}`,
+            `These are the tabs in this Chrome window; pick whichever is relevant (the active tab is usually the right starting point) and pass its tab id to browser_* tools when working on another tab. Other Chrome windows are separate contexts and are not listed here:\n\n${tabsBlock}`,
         ]
           .filter(Boolean)
           .join('\n\n')
@@ -196,8 +248,13 @@ export default function App() {
         bridge={bridge}
         serverUrl={serverUrl}
         health={opencode.health}
+        includePageContext={includeContext}
         onReconnect={reconnect}
-        onComplete={() => setOnboardingComplete(true)}
+        onComplete={(includePage) => {
+          setIncludeContext(includePage)
+          setConsentVersion(PRIVACY_VERSION)
+          setOnboardingComplete(true)
+        }}
       />
     )
   }

@@ -105,9 +105,10 @@ request has been removed. Provider marks are now rendered locally as initials.
 - **Page context:** Turn “Send page context with each prompt” off in the first-run
   screen, the composer, or settings. The agent can still take a snapshot when
   you explicitly ask it to.
-- **Workflows:** Workflows are read-only by default. You can choose per workflow
-  whether submissions and messages are allowed, and you can disable or delete a
-  workflow at any time.
+- **Workflows:** Workflows are read-only by default. Native submissions,
+  send/post-style controls, uploads, and JavaScript execution are blocked, and
+  the agent is instructed not to send, post, or purchase. You can opt in per
+  workflow, and you can disable or delete a workflow at any time.
 - **Clear extension data:** Settings → Data & privacy → “clear stored data”
   removes extension settings, workflows, run history, and local connection
   credentials. You can also uninstall the extension to remove its Chrome

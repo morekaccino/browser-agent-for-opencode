@@ -30,7 +30,7 @@ export function ContextChip({
       label={compact ? (tab.title ? 'Page' : 'No page') : tab.title || 'No page'}
       selected={includeContext}
       onClick={onClick}
-      title={tab.title ? `${tab.title}${tab.url ? ` — ${tab.url}` : ''}` : 'No active page'}
+      title={tab.title ? `${tab.title}${tab.url ? ` — ${tab.url}` : ''} · page, tabs and screenshot context` : 'No active page'}
       className="context-chip"
     />
   )
@@ -54,7 +54,7 @@ export function ContextStrip({
         <span className="context-strip-title">{tab.title || 'No active page'}</span>
         <span className="context-strip-url">
           {hostOf(tab.url)}
-          {includeContext ? ' · page context on' : ' · page context off'}
+          {includeContext ? ' · page, tabs (+ screenshot) on' : ' · page context off'}
         </span>
       </span>
       <span className="msym sm" aria-hidden="true">tune</span>
@@ -104,7 +104,7 @@ export function ContextSheet({
           checked={includeContext}
           onCheckedChange={onIncludeContextChange}
           label="Send page context"
-          supporting="Include a snapshot of the active tab when you send a prompt."
+          supporting="Include this window's tab titles and URLs, an active-tab snapshot, and a full-page screenshot when the model supports images."
         />
         <Switch
           checked={followAgent}

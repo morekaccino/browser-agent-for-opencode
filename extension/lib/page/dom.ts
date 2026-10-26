@@ -116,6 +116,36 @@ export function implicitRole(el: Element): string | null {
   return null
 }
 
+/**
+ * Values that should never be serialized into a page snapshot. The check is
+ * deliberately descriptive: sites label the same secret field in many ways.
+ */
+export function isSensitiveField(el: Element): boolean {
+  if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return false
+  const type = el instanceof HTMLInputElement ? (el.type || 'text').toLowerCase() : 'textarea'
+  if (type === 'password') return true
+  const autocomplete = (el.getAttribute('autocomplete') ?? '').toLowerCase()
+  if (
+    /(^|\s)(current-password|new-password|one-time-code|cc-number|cc-csc|cc-exp|cc-exp-month|cc-exp-year)(\s|$)/.test(
+      autocomplete,
+    )
+  ) {
+    return true
+  }
+  const hint = [
+    el.getAttribute('name'),
+    el.getAttribute('id'),
+    el.getAttribute('placeholder'),
+    el.getAttribute('aria-label'),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+  return /pass(word|code)?|otp|one[- ]?time|2fa|mfa|totp|cvv|cvc|card[- ]?(number|no)|credit[- ]?card|debit[- ]?card|security[- ]?code|ssn|social[- ]?security|tax[- ]?id|iban|account[- ]?number|routing[- ]?number|secret|token/.test(
+    hint,
+  )
+}
+
 export function cleanText(text: string | null | undefined, max = 160): string {
   if (!text) return ''
   const collapsed = text.replace(/\s+/g, ' ').trim()

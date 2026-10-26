@@ -1,4 +1,4 @@
-import { cleanText, describeElement, getRef, resolveTarget, isRendered } from './dom'
+import { accessibleName, cleanText, describeElement, getRef, resolveTarget, isRendered } from './dom'
 
 function center(el: Element): { x: number; y: number; width: number; height: number } {
   const rect = el.getBoundingClientRect()
@@ -32,7 +32,47 @@ function mouseEvent(type: string, el: Element, init: MouseEventInit = {}): Mouse
   })
 }
 
-export function clickElement(el: Element): string {
+const WRITE_ACTION = /(?:^|\b)(?:send|submit|post|publish|reply|buy|purchase|pay|checkout|delete|remove|confirm|save|upload|subscribe|unsubscribe|follow|share|withdraw|transfer)(?:\b|$)/i
+
+function actionableTarget(el: Element): Element {
+  return (
+    el.closest('button, a[href], input[type=button], input[type=submit], input[type=image], [role=button], [role=link]') ??
+    el
+  )
+}
+
+function isFormSubmitControl(el: Element): boolean {
+  if (el instanceof HTMLInputElement) return el.type === 'submit' || el.type === 'image'
+  if (el instanceof HTMLButtonElement) {
+    const type = (el.getAttribute('type') ?? 'submit').toLowerCase()
+    return type === 'submit' && !!el.form
+  }
+  return false
+}
+
+function guardReadOnlyClick(el: Element): void {
+  const target = actionableTarget(el)
+  const visibleValue =
+    target instanceof HTMLInputElement && /^(?:button|submit|reset|image)$/.test(target.type)
+      ? target.value
+      : ''
+  const name = cleanText(accessibleName(target) || visibleValue || target.textContent, 160)
+  const blocked =
+    isFormSubmitControl(target) ||
+    WRITE_ACTION.test(name) ||
+    (target instanceof HTMLAnchorElement &&
+      (target.hasAttribute('download') ||
+        /^\s*(?:javascript|mailto|tel|sms):/i.test(target.getAttribute('href') ?? '')))
+  if (blocked) {
+    throw new Error(
+      `read-only workflow blocked click on ${describeElement(target)}. ` +
+        'Report what you would do instead, or ask the user to enable "Allow submissions and messages".',
+    )
+  }
+}
+
+export function clickElement(el: Element, options: { readOnly?: boolean } = {}): string {
+  if (options.readOnly) guardReadOnlyClick(el)
   el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' as ScrollBehavior })
   const { x, y } = center(el)
   const opts = { clientX: x, clientY: y }
@@ -51,17 +91,24 @@ export function clickElement(el: Element): string {
   return `clicked ${describeElement(el)} [ref=${getRef(el)}]`
 }
 
-export function hoverElement(el: Element): string {
+export function centerOf(el: Element): { x: number; y: number; description: string } {
   el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' as ScrollBehavior })
-  const { x, y } = center(el)
-  const opts = { clientX: x, clientY: y }
-  el.dispatchEvent(pointerEvent('pointerover', el, opts))
-  el.dispatchEvent(pointerEvent('pointerenter', el, { ...opts, bubbles: false }))
-  el.dispatchEvent(mouseEvent('mouseover', el, opts))
-  el.dispatchEvent(mouseEvent('mouseenter', el, { ...opts, bubbles: false }))
-  el.dispatchEvent(pointerEvent('pointermove', el, opts))
-  el.dispatchEvent(mouseEvent('mousemove', el, opts))
-  return `hovered ${describeElement(el)} [ref=${getRef(el)}]`
+  const rect = el.getBoundingClientRect()
+  return {
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+    description: `${describeElement(el)} [ref=${getRef(el)}]`,
+  }
+}
+
+export function focusElement(el: Element): string {
+  el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' as ScrollBehavior })
+  if (!(el instanceof HTMLElement)) throw new Error(`cannot focus ${describeElement(el)}`)
+  el.focus({ preventScroll: true })
+  if (document.activeElement !== el && !el.isContentEditable) {
+    throw new Error(`cannot focus ${describeElement(el)}; click it first or use x,y coordinates`)
+  }
+  return `${describeElement(el)} [ref=${getRef(el)}]`
 }
 
 function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement, value: string): void {
@@ -113,66 +160,6 @@ export function typeIntoElement(el: Element, text: string, opts: { clear?: boole
   let message = `typed ${JSON.stringify(cleanText(text, 80))} into ${describeElement(el)} [ref=${getRef(el)}]`
   if (opts.submit) {
     message += `. ${submitForm(el)}`
-  }
-  return message
-}
-
-const KEY_CODES: Record<string, { code: string; keyCode: number }> = {
-  Enter: { code: 'Enter', keyCode: 13 },
-  Tab: { code: 'Tab', keyCode: 9 },
-  Escape: { code: 'Escape', keyCode: 27 },
-  Backspace: { code: 'Backspace', keyCode: 8 },
-  Delete: { code: 'Delete', keyCode: 46 },
-  ArrowUp: { code: 'ArrowUp', keyCode: 38 },
-  ArrowDown: { code: 'ArrowDown', keyCode: 40 },
-  ArrowLeft: { code: 'ArrowLeft', keyCode: 37 },
-  ArrowRight: { code: 'ArrowRight', keyCode: 39 },
-  Home: { code: 'Home', keyCode: 36 },
-  End: { code: 'End', keyCode: 35 },
-  PageUp: { code: 'PageUp', keyCode: 33 },
-  PageDown: { code: 'PageDown', keyCode: 34 },
-  ' ': { code: 'Space', keyCode: 32 },
-}
-
-function keyInfo(key: string): { code: string; keyCode: number; printable: boolean } {
-  const named = KEY_CODES[key]
-  if (named) return { ...named, printable: key === ' ' }
-  const upper = key.toUpperCase()
-  if (upper.length === 1) {
-    const isLetter = upper >= 'A' && upper <= 'Z'
-    const isDigit = upper >= '0' && upper <= '9'
-    return { code: isLetter ? `Key${upper}` : isDigit ? `Digit${upper}` : key, keyCode: upper.charCodeAt(0), printable: true }
-  }
-  return { code: key, keyCode: 0, printable: false }
-}
-
-export function pressKey(el: Element | null, key: string): string {
-  const target: EventTarget = el ?? document.activeElement ?? document.body
-  if (el instanceof HTMLElement) el.focus({ preventScroll: true })
-  const info = keyInfo(key)
-  const init: KeyboardEventInit = {
-    key,
-    code: info.code,
-    keyCode: info.keyCode,
-    which: info.keyCode,
-    bubbles: true,
-    cancelable: true,
-    composed: true,
-    view: window,
-  }
-  const down = new KeyboardEvent('keydown', init)
-  const notCancelled = target.dispatchEvent(down)
-  if (info.printable || key === 'Enter') {
-    target.dispatchEvent(new KeyboardEvent('keypress', init))
-  }
-  target.dispatchEvent(new KeyboardEvent('keyup', init))
-  let message = `pressed "${key}"`
-  if (el) message += ` on ${describeElement(el)}`
-  if (key === 'Enter' && notCancelled) {
-    const form = el instanceof HTMLElement ? el.closest('form') : (document.activeElement as HTMLElement | null)?.closest('form')
-    if (form) {
-      message += `. ${submitForm(form)}`
-    }
   }
   return message
 }
