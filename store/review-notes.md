@@ -42,7 +42,7 @@ The extension's setup screen is part of the product; no test credentials are req
 
 ## Permissions and remote code
 
-- `debugger` is used for DevTools-grade console capture, JavaScript evaluation through `Runtime.evaluate`, full-page screenshots, iframe input, and file uploads. It attaches only for explicit actions and detaches afterward in the default hook engine.
+- `debugger` is used for DevTools-grade console capture, JavaScript evaluation through `Runtime.evaluate`, full-page screenshots, iframe input, file uploads, and `real:true` input. It attaches only for explicit actions and detaches afterward in the default hook engine. Normal snapshots, clicks, typing, navigation, synthetic input, and viewport screenshots do not attach it.
 - Agent-supplied JavaScript is executed **only** through the Debugger API. The release contains no `eval()` or `new Function()`.
 - `<all_urls>` is required because the user can ask the agent to work on any site, and scheduled workflows can target a site chosen by the user. Content scripts are packaged and only act when the user sends a prompt or runs a workflow.
 - The extension has no analytics, ads, or data sale. It stores settings, workflows, and local connection credentials in `chrome.storage.local`.

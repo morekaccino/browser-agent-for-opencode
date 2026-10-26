@@ -34,11 +34,12 @@ function mouseEvent(type: string, el: Element, init: MouseEventInit = {}): Mouse
 
 const WRITE_ACTION = /(?:^|\b)(?:send|submit|post|publish|reply|buy|purchase|pay|checkout|delete|remove|confirm|save|upload|subscribe|unsubscribe|follow|share|withdraw|transfer)(?:\b|$)/i
 
+function nearestActionable(el: Element): Element | null {
+  return el.closest('button, a[href], input[type=button], input[type=submit], input[type=image], [role=button], [role=link]')
+}
+
 function actionableTarget(el: Element): Element {
-  return (
-    el.closest('button, a[href], input[type=button], input[type=submit], input[type=image], [role=button], [role=link]') ??
-    el
-  )
+  return nearestActionable(el) ?? el
 }
 
 function isFormSubmitControl(el: Element): boolean {
@@ -101,6 +102,19 @@ export function centerOf(el: Element): { x: number; y: number; description: stri
   }
 }
 
+export function hoverElement(el: Element): string {
+  el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' as ScrollBehavior })
+  const { x, y } = center(el)
+  const opts = { clientX: x, clientY: y }
+  el.dispatchEvent(pointerEvent('pointerover', el, opts))
+  el.dispatchEvent(pointerEvent('pointerenter', el, { ...opts, bubbles: false }))
+  el.dispatchEvent(mouseEvent('mouseover', el, opts))
+  el.dispatchEvent(mouseEvent('mouseenter', el, { ...opts, bubbles: false }))
+  el.dispatchEvent(pointerEvent('pointermove', el, opts))
+  el.dispatchEvent(mouseEvent('mousemove', el, opts))
+  return `hovered ${describeElement(el)} [ref=${getRef(el)}] (synthetic hover; CSS-only menus may need real input)`
+}
+
 export function focusElement(el: Element): string {
   el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' as ScrollBehavior })
   if (!(el instanceof HTMLElement)) throw new Error(`cannot focus ${describeElement(el)}`)
@@ -109,6 +123,227 @@ export function focusElement(el: Element): string {
     throw new Error(`cannot focus ${describeElement(el)}; click it first or use x,y coordinates`)
   }
   return `${describeElement(el)} [ref=${getRef(el)}]`
+}
+
+const KEY_CODES: Record<string, { code: string; keyCode: number }> = {
+  Enter: { code: 'Enter', keyCode: 13 },
+  Tab: { code: 'Tab', keyCode: 9 },
+  Escape: { code: 'Escape', keyCode: 27 },
+  Backspace: { code: 'Backspace', keyCode: 8 },
+  Delete: { code: 'Delete', keyCode: 46 },
+  ArrowUp: { code: 'ArrowUp', keyCode: 38 },
+  ArrowDown: { code: 'ArrowDown', keyCode: 40 },
+  ArrowLeft: { code: 'ArrowLeft', keyCode: 37 },
+  ArrowRight: { code: 'ArrowRight', keyCode: 39 },
+  Home: { code: 'Home', keyCode: 36 },
+  End: { code: 'End', keyCode: 35 },
+  PageUp: { code: 'PageUp', keyCode: 33 },
+  PageDown: { code: 'PageDown', keyCode: 34 },
+  ' ': { code: 'Space', keyCode: 32 },
+}
+
+function keyInfo(key: string): { code: string; keyCode: number; printable: boolean } {
+  const named = KEY_CODES[key]
+  if (named) return { ...named, printable: key === ' ' }
+  const upper = key.toUpperCase()
+  if (upper.length === 1) {
+    const isLetter = upper >= 'A' && upper <= 'Z'
+    const isDigit = upper >= '0' && upper <= '9'
+    return { code: isLetter ? `Key${upper}` : isDigit ? `Digit${upper}` : key, keyCode: upper.charCodeAt(0), printable: true }
+  }
+  return { code: key, keyCode: 0, printable: false }
+}
+
+function isTextEntry(el: Element | null): boolean {
+  if (el instanceof HTMLInputElement) {
+    return !el.disabled && !el.readOnly && !/^(?:button|submit|reset|checkbox|radio|file|range|color|hidden)$/.test(el.type)
+  }
+  if (el instanceof HTMLTextAreaElement) return !el.disabled && !el.readOnly
+  return el instanceof HTMLElement && el.isContentEditable
+}
+
+function insertAtCaret(el: Element | null, text: string): boolean {
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    if (!isTextEntry(el)) return false
+    const start = el.selectionStart ?? el.value.length
+    const end = el.selectionEnd ?? start
+    const next = el.value.slice(0, start) + text + el.value.slice(end)
+    setNativeValue(el, next)
+    const caret = start + text.length
+    try {
+      el.setSelectionRange(caret, caret)
+    } catch {
+      /* some input types cannot select */
+    }
+    el.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, data: text, inputType: 'insertText' }))
+    return true
+  }
+  if (el instanceof HTMLElement && el.isContentEditable) {
+    el.focus({ preventScroll: true })
+    try {
+      return document.execCommand('insertText', false, text)
+    } catch {
+      return false
+    }
+  }
+  return false
+}
+
+function deleteAtCaret(el: Element | null, backwards: boolean): boolean {
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    if (!isTextEntry(el)) return false
+    const start = el.selectionStart ?? el.value.length
+    const end = el.selectionEnd ?? start
+    const from = start === end ? (backwards ? Math.max(0, start - 1) : start) : start
+    const to = start === end ? (backwards ? end : Math.min(el.value.length, end + 1)) : end
+    if (from === to) return false
+    setNativeValue(el, el.value.slice(0, from) + el.value.slice(to))
+    try {
+      el.setSelectionRange(from, from)
+    } catch {
+      /* ignore */
+    }
+    el.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'deleteContent' }))
+    return true
+  }
+  if (el instanceof HTMLElement && el.isContentEditable) {
+    el.focus({ preventScroll: true })
+    try {
+      return document.execCommand(backwards ? 'delete' : 'forwardDelete')
+    } catch {
+      return false
+    }
+  }
+  return false
+}
+
+function focusNext(current: Element | null): HTMLElement | null {
+  const items = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      'a[href], button, input, select, textarea, [tabindex], [contenteditable="true"]',
+    ),
+  ).filter((el) => {
+    if (!isRendered(el)) return false
+    if (el instanceof HTMLInputElement || el instanceof HTMLButtonElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement) {
+      if (el.disabled) return false
+    }
+    return el.tabIndex >= 0 || el.isContentEditable
+  })
+  if (items.length === 0) return null
+  const index = current instanceof HTMLElement ? items.indexOf(current) : -1
+  const next = items[index + 1] ?? items[0]
+  next?.focus({ preventScroll: false })
+  return next ?? null
+}
+
+function scrollForPressedKey(key: string): string | null {
+  const viewport = window.innerHeight
+  switch (key) {
+    case 'ArrowUp':
+      window.scrollBy({ top: -40 })
+      return 'scrolled up 40px'
+    case 'ArrowDown':
+      window.scrollBy({ top: 40 })
+      return 'scrolled down 40px'
+    case 'ArrowLeft':
+      window.scrollBy({ left: -40 })
+      return 'scrolled left 40px'
+    case 'ArrowRight':
+      window.scrollBy({ left: 40 })
+      return 'scrolled right 40px'
+    case 'PageUp':
+      window.scrollBy({ top: -Math.round(viewport * 0.9) })
+      return 'scrolled up one page'
+    case 'PageDown':
+      window.scrollBy({ top: Math.round(viewport * 0.9) })
+      return 'scrolled down one page'
+    case 'Home':
+      window.scrollTo({ top: 0 })
+      return 'scrolled to the top'
+    case 'End':
+      window.scrollTo({ top: document.documentElement.scrollHeight })
+      return 'scrolled to the bottom'
+    default:
+      return null
+  }
+}
+
+/** Debugger-free key handling. It implements the common default actions itself. */
+export function pressKey(el: Element | null, rawKey: string): string {
+  const key = rawKey === 'Space' || rawKey === 'Spacebar' ? ' ' : rawKey
+  const targetEl =
+    el instanceof HTMLElement ? el : document.activeElement instanceof HTMLElement ? document.activeElement : null
+  if (el instanceof HTMLElement) el.focus({ preventScroll: true })
+  const target: EventTarget = targetEl ?? document.body
+  const info = keyInfo(key)
+  const init: KeyboardEventInit = {
+    key,
+    code: info.code,
+    keyCode: info.keyCode,
+    which: info.keyCode,
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    view: window,
+  }
+  const notCancelled = target.dispatchEvent(new KeyboardEvent('keydown', init))
+  if (info.printable || key === 'Enter') target.dispatchEvent(new KeyboardEvent('keypress', init))
+  target.dispatchEvent(new KeyboardEvent('keyup', init))
+  let message = `pressed "${key}"${targetEl ? ` on ${describeElement(targetEl)}` : ''}`
+  if (!notCancelled) return `${message} (default prevented by the page)`
+
+  if (key === 'Tab') {
+    const next = focusNext(targetEl)
+    return `${message}. ${next ? `focused ${describeElement(next)}` : 'no focusable element found'}`
+  }
+
+  if (key === 'Enter') {
+    if (targetEl && (targetEl.isContentEditable || targetEl instanceof HTMLTextAreaElement)) {
+      return `${message}. ${insertAtCaret(targetEl, '\n') ? 'inserted a line break' : 'could not insert a line break'}`
+    }
+    const action = targetEl ? nearestActionable(targetEl) : null
+    if (action) return `${message}. ${clickElement(action)}`
+    const form = targetEl?.closest('form')
+    if (form) return `${message}. ${submitForm(form)}`
+    return message
+  }
+
+  if (key === ' ') {
+    if (isTextEntry(targetEl)) {
+      return `${message}. ${insertAtCaret(targetEl, ' ') ? 'inserted a space' : 'could not insert a space'}`
+    }
+    const action =
+      targetEl instanceof HTMLInputElement && (targetEl.type === 'checkbox' || targetEl.type === 'radio')
+        ? targetEl
+        : targetEl
+          ? nearestActionable(targetEl)
+          : null
+    if (action instanceof HTMLInputElement && (action.type === 'checkbox' || action.type === 'radio')) {
+      action.checked = action.type === 'radio' ? true : !action.checked
+      action.dispatchEvent(new Event('input', { bubbles: true }))
+      action.dispatchEvent(new Event('change', { bubbles: true }))
+      return `${message}. activated ${describeElement(action)}`
+    }
+    if (action) return `${message}. ${clickElement(action)}`
+    window.scrollBy({ top: Math.round(window.innerHeight * 0.9) })
+    return `${message}. scrolled down one page`
+  }
+
+  if (key === 'Backspace' || key === 'Delete') {
+    const changed = deleteAtCaret(targetEl, key === 'Backspace')
+    return `${message}. ${changed ? 'deleted text' : 'no editable text to delete'}`
+  }
+
+  if (info.printable) {
+    return `${message}. ${insertAtCaret(targetEl, key) ? 'inserted text' : 'target is not editable'}`
+  }
+
+  const scrolled = scrollForPressedKey(key)
+  if (scrolled) {
+    const editable = targetEl instanceof HTMLInputElement || targetEl instanceof HTMLTextAreaElement || targetEl instanceof HTMLSelectElement || !!targetEl?.isContentEditable
+    if (!editable) return `${message}. ${scrolled}`
+  }
+  return message
 }
 
 function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement, value: string): void {

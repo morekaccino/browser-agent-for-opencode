@@ -40,15 +40,8 @@ function isScriptUrl(value: string): boolean {
   return /^\s*(?:javascript|data|vbscript):/i.test(value)
 }
 
-interface Highlight {
-  kind: 'opencode' | 'temp'
-  groupId: number
-  tabId: number
-}
-
 /** Agent state is per Chrome window so two windows never share a working tab or group. */
 const agentTabByWindow = new Map<number, number>()
-const highlightByWindow = new Map<number, Highlight>()
 const agentOwnedTabs = new Set<number>()
 
 /** A short, meaningful group title for a tab — its site name. */
@@ -103,49 +96,6 @@ async function setAgentGroupId(windowId: number, groupId: number | null): Promis
   await task
 }
 
-async function cleanupHighlight(windowId: number): Promise<void> {
-  const current = highlightByWindow.get(windowId)
-  highlightByWindow.delete(windowId)
-  if (!current) return
-  try {
-    if (current.kind === 'temp') {
-      await browser.tabs.ungroup([current.tabId])
-    } else {
-      await browser.tabGroups.update(current.groupId, { color: 'blue' }).catch(() => {})
-    }
-  } catch {
-    /* tab or group already gone */
-  }
-}
-
-/** Give the working tab a visible tab-bar treatment (via its tab group). */
-async function applyHighlight(tabId: number, windowId: number): Promise<void> {
-  try {
-    const tab = await browser.tabs.get(tabId)
-    if (tab.id == null || tab.windowId !== windowId) return
-    // Grouping changes the tab strip. Skip it while the window is fullscreen:
-    // Chrome can drop out of fullscreen to show the new group.
-    const win = await browser.windows.get(windowId).catch(() => null)
-    if (win?.state === 'fullscreen') return
-    const none = browser.tabGroups.TAB_GROUP_ID_NONE
-    if (tab.groupId != null && tab.groupId !== none) {
-      const group = await browser.tabGroups.get(tab.groupId).catch(() => null)
-      const ours = group?.windowId === windowId && (await getAgentGroupId(windowId)) === group.id
-      if (ours) {
-        await browser.tabGroups.update(tab.groupId, { color: 'orange' }).catch(() => {})
-        highlightByWindow.set(windowId, { kind: 'opencode', groupId: tab.groupId, tabId })
-      }
-      return // user's own group — don't touch it
-    }
-    const groupId = await browser.tabs.group({ tabIds: [tabId] })
-    if (groupId == null) return
-    await browser.tabGroups.update(groupId, { title: `${titleForTab(tab)} · working`, color: 'orange' }).catch(() => {})
-    highlightByWindow.set(windowId, { kind: 'temp', groupId, tabId })
-  } catch {
-    /* tab groups unavailable — page halo still applies */
-  }
-}
-
 /** Rename (and possibly re-group) the agent's tabs — the agent names it after the task. */
 async function nameAgentGroup(title: string, tabIdParam?: number, windowId?: number): Promise<string> {
   const tab = await resolveTab(tabIdParam ?? agentTabFor(windowId), windowId)
@@ -156,18 +106,9 @@ async function nameAgentGroup(title: string, tabIdParam?: number, windowId?: num
   let groupId: number | null = null
   if (tab.groupId != null && tab.groupId !== none) {
     const group = await browser.tabGroups.get(tab.groupId).catch(() => null)
-    const current = highlightByWindow.get(tabWindowId)
     const ours = group?.windowId === tabWindowId && (await getAgentGroupId(tabWindowId)) === group.id
-    // The snapshot highlight may have put this tab in a temporary "working"
-    // group. Naming it promotes that group to the agent group.
-    const ourWorkingGroup =
-      group?.windowId === tabWindowId && current?.groupId === group.id && current.kind === 'temp'
-    if (!ours && !ourWorkingGroup) {
+    if (!ours) {
       throw new Error('that tab is in the user’s tab group; open a new tab for this task instead')
-    }
-    if (ourWorkingGroup && group) {
-      await setAgentGroupId(tabWindowId, group.id)
-      highlightByWindow.set(tabWindowId, { kind: 'opencode', groupId: group.id, tabId: tab.id })
     }
     groupId = group?.id ?? null
   } else {
@@ -195,14 +136,6 @@ async function markAgentTab(tabId: number): Promise<void> {
   agentTabByWindow.set(windowId, tabId)
   void sendHalo(tabId, true)
   if (previous != null && previous !== tabId) void sendHalo(previous, false)
-
-  if (previous !== tabId) {
-    void (async () => {
-      const current = highlightByWindow.get(windowId)
-      if (current && current.tabId !== tabId) await cleanupHighlight(windowId)
-      if (!highlightByWindow.has(windowId)) await applyHighlight(tabId, windowId)
-    })()
-  }
 
   // "follow the AI": switch the user's view to the working tab (opt-in).
   // Deliberately no window focus change — never steal focus from other windows/apps.
@@ -246,7 +179,6 @@ export function forgetAgentWindow(windowId: number): void {
   const tabId = agentTabByWindow.get(windowId)
   if (tabId != null) agentOwnedTabs.delete(tabId)
   agentTabByWindow.delete(windowId)
-  highlightByWindow.delete(windowId)
   void setAgentGroupId(windowId, null)
 }
 
@@ -255,30 +187,15 @@ export function forgetTab(tabId: number): void {
   for (const [windowId, id] of agentTabByWindow) {
     if (id === tabId) agentTabByWindow.delete(windowId)
   }
-  for (const [windowId, current] of highlightByWindow) {
-    if (current.tabId !== tabId) continue
-    highlightByWindow.delete(windowId)
-    void (async () => {
-      try {
-        if (current.kind === 'opencode') await browser.tabGroups.update(current.groupId, { color: 'blue' }).catch(() => {})
-      } catch {
-        /* group already gone */
-      }
-    })()
-  }
 }
 
-/** Agent run finished — kill the halo and tab-bar highlight immediately. */
+/** Agent run finished — kill the page halo immediately. */
 export async function clearAgentActivity(windowId?: number): Promise<void> {
   const windows = windowId != null ? [windowId] : Array.from(agentTabByWindow.keys())
   for (const win of windows) {
     const tabId = agentTabByWindow.get(win)
     agentTabByWindow.delete(win)
     if (tabId != null) void sendHalo(tabId, false)
-    await cleanupHighlight(win)
-  }
-  if (windowId == null) {
-    for (const win of Array.from(highlightByWindow.keys())) await cleanupHighlight(win)
   }
 }
 
@@ -317,6 +234,30 @@ function tabInfo(tab: Browser.tabs.Tab): TabInfo {
 export function formatTabList(tabs: Browser.tabs.Tab[]): string {
   if (tabs.length === 0) return '(no tabs)'
   return tabs.map((t) => `- tab ${t.id}${t.active ? ' (active)' : ''}: ${t.title ?? ''} — ${t.url ?? ''}`).join('\n')
+}
+
+async function activateTab(tab: Browser.tabs.Tab): Promise<Browser.tabs.Tab> {
+  if (tab.id == null) throw new Error('tab has no id')
+  if (tab.active) return tab
+  await browser.tabs.update(tab.id, { active: true })
+  await sleep(150)
+  const fresh = await browser.tabs.get(tab.id).catch(() => null)
+  if (!fresh?.active) throw new Error(`could not activate tab ${tab.id} for capture`)
+  return fresh
+}
+
+/**
+ * Capture the visible tab through Chrome's normal screenshot API. This does
+ * not attach the debugger, so it does not show the "started debugging" bar or
+ * change the page viewport. Full-page captures still use CDP and are opt-in.
+ */
+async function captureViewport(tab: Browser.tabs.Tab): Promise<string> {
+  const fresh = await activateTab(tab)
+  if (fresh.windowId == null) throw new Error('tab has no window')
+  const dataUrl = await browser.tabs.captureVisibleTab(fresh.windowId, { format: 'png' })
+  const match = /^data:image\/png;base64,(.+)$/.exec(dataUrl)
+  if (!match?.[1]) throw new Error('captureVisibleTab returned no PNG data')
+  return match[1]
 }
 
 async function sendToContent<T = any>(tabId: number, op: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -474,7 +415,13 @@ export async function handleRequest(
     case 'tabs.group': {
       const title = String(params.title ?? '').trim()
       if (!title) throw new Error('title is required (a short, meaningful name for the group)')
-      return nameAgentGroup(title.slice(0, 40), tabIdParam, windowId)
+      // Never fall back to the user's active tab for group naming. That would
+      // move their tab into a group and change the tab-strip/page size.
+      const targetTab = tabIdParam ?? agentTabFor(windowId)
+      if (targetTab == null || !agentOwnedTabs.has(targetTab)) {
+        throw new Error('pass the tab_id of a tab the agent opened before naming its group')
+      }
+      return nameAgentGroup(title.slice(0, 40), targetTab, windowId)
     }
 
     case 'upload': {
@@ -525,7 +472,7 @@ export async function handleRequest(
       await markAgentTab(tab.id)
       const page = await sendToContent<{ text: string; truncated: boolean; lineCount: number }>(tab.id, 'snapshot')
       let iframeSection = ''
-      if (params.include_iframes !== false) {
+      if (params.include_iframes === true) {
         try {
           const frames = await sendToContent<Array<{ src: string; x: number; y: number; w: number; h: number }>>(tab.id, 'iframes')
           if (frames.length > 0) {
@@ -619,6 +566,10 @@ export async function handleRequest(
       const tab = await resolve(tabIdParam)
       if (tab.id == null) throw new Error('tab has no id')
       await markAgentTab(tab.id)
+      const real = params.real === true
+      if (!real && !(typeof params.x === 'number' && typeof params.y === 'number')) {
+        return await sendToContent<string>(tab.id, 'hover', params)
+      }
       let x: number
       let y: number
       let description = ''
@@ -671,11 +622,16 @@ export async function handleRequest(
     case 'press': {
       const tab = await resolve(tabIdParam)
       if (tab.id == null) throw new Error('tab has no id')
-      const key = String(params.key ?? 'Enter')
+      const rawKey = String(params.key ?? 'Enter')
+      const key = rawKey === 'Space' || rawKey === 'Spacebar' ? ' ' : rawKey
       if (readOnly && (key === 'Enter' || key === ' ')) {
         readOnlyBlocked(`pressing ${JSON.stringify(key)}, because it can submit or activate a control`)
       }
       await markAgentTab(tab.id)
+      const real = params.real === true
+      if (!real && !(typeof params.x === 'number' && typeof params.y === 'number')) {
+        return await sendToContent<string>(tab.id, 'press', { ...params, key })
+      }
       try {
         if (typeof params.x === 'number' && typeof params.y === 'number') {
           await clickPoint(tab.id, params.x, params.y)
@@ -754,43 +710,39 @@ export async function handleRequest(
     case 'screenshot': {
       const tab = await resolve(tabIdParam)
       if (tab.id == null) throw new Error('tab has no id')
-      const fullPage = params.full_page === true
+      // Automatic page context always uses the debugger-free viewport path,
+      // even if an older client sends full_page:true.
+      const fullPage = params.full_page === true && params.context_only !== true
 
-      // Automatic page-context screenshots attach Chrome's debugger, which can
-      // bring the window out of fullscreen. The explicit browser_screenshot
-      // tool still works; this only skips the best-effort context capture.
-      if (params.context_only === true && tab.windowId != null) {
-        const win = await browser.windows.get(tab.windowId).catch(() => null)
-        if (win?.state === 'fullscreen') {
-          throw new Error('page context screenshot skipped while the browser is in fullscreen')
+      if (!fullPage) {
+        try {
+          const base64 = await captureViewport(tab)
+          const fresh = await browser.tabs.get(tab.id).catch(() => tab)
+          return { base64, mime: 'image/png', tab: tabInfo(fresh) } satisfies ScreenshotResult
+        } catch (error) {
+          throw new Error(
+            `viewport screenshot failed: ${error instanceof Error ? error.message : String(error)}. ` +
+              'Keep the tab window visible, or use full_page=true (which briefly attaches the debugger).',
+          )
         }
       }
 
-      // Bring a background tab forward if necessary, but never change the
-      // browser window state. Calling windows.update(state: 'normal') would
-      // unmaximize/resize the user's window every time page context is sent.
+      let fresh: Browser.tabs.Tab
       try {
-        if (!tab.active) {
-          await browser.tabs.update(tab.id, { active: true })
-          await sleep(150)
-        }
+        fresh = await activateTab(tab)
       } catch {
-        /* focusing is best effort */
+        fresh = tab
       }
-
-      // Use the debugger for every screenshot. tabs.captureVisibleTab and
-      // clip-based CDP captures can hang on Windows when the window is not
-      // focused or under automation; a full-page capture + canvas crop is
-      // reliable in those cases.
+      if (fresh.id == null) throw new Error('tab has no id')
       try {
-        const base64 = await debuggerScreenshot(tab.id, fullPage)
-        return { base64, mime: 'image/png', tab: tabInfo(tab) } satisfies ScreenshotResult
+        const base64 = await debuggerScreenshot(fresh.id, true)
+        return { base64, mime: 'image/png', tab: tabInfo(fresh) } satisfies ScreenshotResult
       } catch (error) {
         throw new Error(
-          `screenshot failed: ${error instanceof Error ? error.message : String(error)}. Close DevTools for this tab and retry.`,
+          `full-page screenshot failed: ${error instanceof Error ? error.message : String(error)}. Close DevTools for this tab and retry.`,
         )
       } finally {
-        await detachIfEphemeral(tab.id)
+        await detachIfEphemeral(fresh.id)
       }
     }
 

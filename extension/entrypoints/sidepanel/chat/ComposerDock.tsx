@@ -371,7 +371,7 @@ export function ComposerDock({
               selected={includeContext}
               onClick={onOpenContext}
               className="composer-context-chip"
-              title="Page context: active tab, open tabs, and a full-page screenshot for image models"
+              title="Page context: active tab, open tabs, and a viewport screenshot for image models"
             />
           ) : null}
 

@@ -20,7 +20,7 @@ Use these texts in the Chrome Web Store **Privacy practices → Permissions** fi
 
 ## `debugger`
 
-> Attaches Chrome's debugger only for explicit actions that need DevTools-level access: console capture in debugger mode, JavaScript evaluation through `Runtime.evaluate`, full-page screenshots, real keyboard and pointer input, iframe input, and attaching local files to file inputs. The extension detaches when the action finishes unless the user selected the persistent debugger console engine. This permission is central to the extension's browser-automation fidelity.
+> Attaches Chrome's debugger only for explicit actions that need DevTools-level access: console capture in debugger mode, JavaScript evaluation through `Runtime.evaluate`, full-page screenshots, iframe input, file uploads, and `real:true` keyboard/pointer input. Normal snapshots, clicks, typing, navigation, synthetic input, and viewport screenshots use packaged content scripts or Chrome's normal `captureVisibleTab` API and do not attach the debugger. The extension detaches when an action finishes unless the user selected the persistent debugger console engine.
 
 ## `sidePanel`
 

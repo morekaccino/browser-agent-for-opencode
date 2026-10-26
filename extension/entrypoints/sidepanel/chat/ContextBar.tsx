@@ -104,7 +104,7 @@ export function ContextSheet({
           checked={includeContext}
           onCheckedChange={onIncludeContextChange}
           label="Send page context"
-          supporting="Include this window's tab titles and URLs, an active-tab snapshot, and a full-page screenshot when the model supports images."
+          supporting="Include this window's tab titles and URLs, an active-tab snapshot, and a viewport screenshot when the model supports images."
         />
         <Switch
           checked={followAgent}

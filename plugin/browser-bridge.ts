@@ -504,7 +504,7 @@ function makeTools(ctx: any) {
       name: "browser_tabs",
       description:
         "List, open, close, activate or group browser tabs. Use this to see what is open, then pass tab_id to other browser_* tools to target a specific tab. " +
-        "Tabs you open are automatically placed in a tab group; call this with action=group and a short, task-meaningful title " +
+        "Tabs you open are automatically placed in a tab group; to name that group, call this with action=group, the tab_id you opened, and a short, task-meaningful title " +
         "(e.g. 'flight prices · Toronto→Paris', 'laptop specs') so the user can tell at a glance which tabs belong to which task.",
       input: obj(
         {
@@ -527,12 +527,12 @@ function makeTools(ctx: any) {
       description:
         "Get a text snapshot of a page: URL, title, recent console messages and an indented tree of visible elements. " +
         "Interactive elements are labelled with [ref=eN] — use those refs for browser_click, browser_type, etc. " +
-        "If the page embeds cross-origin iframes (e.g. iCloud, embedded apps), a trailing [iframes] section lists their contents " +
-        "with viewport coordinates — click/type there with x,y instead of refs. " +
-        "Always take a snapshot before acting, and take a fresh one after navigation or big DOM changes (refs can go stale).",
+        "Always take a snapshot before acting, and take a fresh one after navigation or big DOM changes (refs can go stale). " +
+        "Pass include_iframes=true to also read cross-origin iframe contents; that path briefly attaches Chrome's debugger.",
       input: obj({
         tab_id: tabArg,
         include_console: bool("Include recent console entries (default true)."),
+        include_iframes: bool("Also scan iframe contents (briefly shows the debugging banner; default false)."),
       }),
       async execute(args: any, context: any) {
         const result = await bridgeCall("snapshot", args, 60_000, context?.signal)
@@ -561,7 +561,8 @@ function makeTools(ctx: any) {
       name: "browser_click",
       description:
         "Click an element. Prefer the [ref=eN] from the latest browser_snapshot; selector or text also work. " +
-        "Clicking may navigate or change the page — take a fresh snapshot afterwards.",
+        "Clicking may navigate or change the page — take a fresh snapshot afterwards. " +
+        "Passing x,y for iframe input briefly attaches Chrome's debugger.",
       input: obj({ ...targetArgs, ...coordinateArgs }),
       async execute(args: any, context: any) {
         const result = await bridgeCall("click", args, DEFAULT_TIMEOUT, context?.signal)
@@ -573,7 +574,8 @@ function makeTools(ctx: any) {
       name: "browser_type",
       description:
         "Type text into an input, textarea or contenteditable element (identified by ref/selector/text). " +
-        "By default it replaces the existing value; set submit=true to press Enter / submit the form afterwards.",
+        "By default it replaces the existing value; set submit=true to press Enter / submit the form afterwards. " +
+        "Passing x,y for iframe input briefly attaches Chrome's debugger.",
       input: obj(
         {
           ...targetArgs,
@@ -593,11 +595,13 @@ function makeTools(ctx: any) {
     {
       name: "browser_press",
       description:
-        "Press a real keyboard key (Enter, Tab, Escape, ArrowDown, PageDown, a letter…) optionally focused on an element. " +
-        "This briefly attaches Chrome's debugger (a yellow banner may appear).",
+        "Press a keyboard key (Enter, Tab, Escape, ArrowDown, PageDown, a letter…) optionally focused on an element. " +
+        "By default this uses page events and is debugger-free; set real=true for a true OS-level key event, " +
+        "which briefly attaches Chrome's debugger (a yellow banner may appear).",
       input: obj(
         {
           key: str("Key name, e.g. Enter, Tab, Escape, ArrowUp, a."),
+          real: bool("Use Chrome's debugger for a true OS-level key event (briefly shows the debugging banner). Default false."),
           ...targetArgs,
           ...coordinateArgs,
         },
@@ -643,9 +647,14 @@ function makeTools(ctx: any) {
     {
       name: "browser_hover",
       description:
-        "Move the real mouse pointer over an element (useful to reveal CSS hover menus/tooltips). " +
-        "This briefly attaches Chrome's debugger (a yellow banner may appear).",
-      input: obj({ ...targetArgs, ...coordinateArgs }),
+        "Move the pointer over an element. By default this dispatches page events and is debugger-free; " +
+        "set real=true to move the real pointer and reveal CSS-only hover menus/tooltips " +
+        "(this briefly attaches Chrome's debugger and may show the yellow banner).",
+      input: obj({
+        ...targetArgs,
+        ...coordinateArgs,
+        real: bool("Use Chrome's debugger for a real pointer move (briefly shows the debugging banner). Default false."),
+      }),
       async execute(args: any, context: any) {
         const result = await bridgeCall("hover", args, DEFAULT_TIMEOUT, context?.signal)
         return ok(String(result))
@@ -739,7 +748,8 @@ function makeTools(ctx: any) {
         "Capture a PNG screenshot of a tab and save it to disk inside the session's project directory " +
         "(.opencode-screenshots/ — so no external-directory permission prompts are triggered), returning the file path. " +
         "Use it when visual layout matters (charts, images, broken styling) — combine with browser_snapshot for full understanding. " +
-        "Screenshots briefly attach Chrome's debugger (a yellow banner may appear). With full_page=true (default false) the whole scrollable page is captured.",
+        "Viewport screenshots use Chrome's normal capture API and do not attach the debugger. " +
+        "With full_page=true (default false) the whole scrollable page is captured and the debugger briefly attaches (a yellow banner may appear).",
       input: obj({
         tab_id: tabArg,
         full_page: bool("Capture the full scrollable page instead of the viewport (attaches the debugger briefly)."),

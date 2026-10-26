@@ -28,6 +28,8 @@ Every browser tool works from any opencode session — panel, TUI, or `opencode 
 
 Each side panel is bound to its Chrome window. Browser tools for that session stay in that window: tab lists, snapshots, screenshots, new tabs, tab groups, and the working-tab halo are all window-scoped. A second side panel gets its own session and its own window context. Sessions with no side panel (scheduled workflows, desktop-app sessions) get a dedicated automation window instead of acting on the window you are using. If a session is already owned by another live Chrome window, the panel will not send into it — use a different session for that window (or close the window that owns it).
 
+Routine browsing stays quiet: the working-tab halo is an overlay, the extension does not group your current tab just to highlight it, viewport screenshots use Chrome's normal capture API, and normal input is debugger-free. The yellow debugging bar appears only for explicit DevTools-level actions (JavaScript execution, uploads, full-page screenshots, iframe scans, coordinate input, `real:true` input, or the Debugger console engine).
+
 ## Requirements
 
 - **Node.js 20+** for the build and helper scripts (users installing from the Chrome Web Store do not need Node).
@@ -88,7 +90,7 @@ A workflow is one self-contained instruction that runs on a schedule — for exa
 
 ## Console engines
 
-- **hook** (default): captures `console.*`, uncaught errors, and promise rejections from page load without Chrome warnings. `browser_console` exec, `browser_press`, `browser_hover`, and coordinate-based typing use Chrome's Debugger API, briefly attaching the debugger (a yellow banner may appear), then detaching.
+- **hook** (default): captures `console.*`, uncaught errors, and promise rejections from page load without Chrome warnings. Normal page snapshots, clicks, typing, scrolling, navigation, synthetic key/hover events, and viewport screenshots stay debugger-free. `browser_console` exec, full-page screenshots, file uploads, iframe scans, coordinate input, and `real:true` key/pointer input briefly attach the debugger (a yellow banner may appear), then detach.
 - **debugger**: keeps Chrome's debugger attached for DevTools-grade fidelity, including browser-level errors and logs from before injection. Chrome shows a yellow “debugging” banner and DevTools cannot be open on that tab while attached.
 
 Agent-supplied JavaScript is **only** executed through `chrome.debugger` → `Runtime.evaluate`. The extension contains no `eval()` or `new Function()`.
@@ -172,7 +174,7 @@ store/       listing copy, permission justifications, screenshots, checklist
 - **“Browser extension is not connected”** — check the bridge dot in the side panel and click *reconnect bridge*. Make sure the plugin is in the opencode plugins folder and restart opencode after installing it.
 - **Server unreachable** — run `opencode service status` and `opencode api get /api/info`. If you use a foreground `opencode serve` that is not the registered service, enter its URL/password manually and turn auto-discover off.
 - **401 / authentication required** — V2 uses the password in `~/.local/state/opencode/service.json`; `npm run status` prints it locally. For a server started with `OPENCODE_SERVER_PASSWORD`, enter that password manually.
-- **`console.exec`, `browser_press`, `browser_hover`, coordinate typing, or screenshots cannot attach** — close DevTools on that tab; Chrome does not allow the debugger to attach while DevTools is open.
+- **`console.exec`, full-page screenshots, uploads, iframe scans, coordinate input, or `real:true` key/pointer input cannot attach** — close DevTools on that tab; Chrome does not allow the debugger to attach while DevTools is open. Viewport screenshots and normal input do not use the debugger.
 - **A page cannot be scripted** — `chrome://`, the Chrome Web Store, and the PDF viewer are protected. `file://` pages require “Allow access to file URLs” in the extension details.
 - **Local network access** — newer Chrome versions gate some loopback requests. Use `localhost` for the opencode server and allow local network access for the extension if Chrome blocks the bridge WebSocket.
 - **Extension won't load on Windows** — select the folder that contains `manifest.json` (`extension\.output\chrome-mv3`) and make sure the build completed.

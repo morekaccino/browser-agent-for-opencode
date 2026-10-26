@@ -5,6 +5,8 @@ import {
   clickElement,
   focusElement,
   highlightElement,
+  hoverElement,
+  pressKey,
   scrollPage,
   selectOption,
   typeIntoElement,
@@ -25,10 +27,16 @@ function handleAction(kind: string, params: Record<string, any>): string | Promi
       return clickElement(resolveTarget(params), { readOnly: params.read_only === true })
     case 'focus':
       return focusElement(resolveTarget(params))
+    case 'hover':
+      return hoverElement(resolveTarget(params))
     case 'highlight':
       return highlightElement(resolveTarget(params))
     case 'type':
       return typeIntoElement(resolveTarget(params), String(params.text ?? ''), { clear: params.clear, submit: params.submit })
+    case 'press': {
+      const target = params.ref || params.selector || params.text ? resolveTarget(params) : null
+      return pressKey(target, String(params.key ?? 'Enter'))
+    }
     case 'select':
       return selectOption(resolveTarget(params), { value: params.value, label: params.label })
     case 'scroll':

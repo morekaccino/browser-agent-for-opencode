@@ -180,29 +180,21 @@ export default function App() {
           (model) => model.value === (opencode.model ? `${opencode.model.providerID}/${opencode.model.modelID}` : ''),
         )
         if (activeModel?.supportsImages) {
-          let shot = await withTimeout(
+          // Viewport capture uses tabs.captureVisibleTab: no debugger banner
+          // and no viewport resize.
+          const shot = await withTimeout(
             callBackground<{ base64?: string }>('screenshot', {
-              full_page: true,
+              full_page: false,
               context_only: true,
               ...(tab.id != null ? { tab_id: tab.id } : {}),
             }),
-            15000,
+            12000,
           ).catch(() => null)
-          if (shot?.base64 && shot.base64.length > 8_000_000) {
-            shot = await withTimeout(
-              callBackground<{ base64?: string }>('screenshot', {
-                full_page: false,
-                context_only: true,
-                ...(tab.id != null ? { tab_id: tab.id } : {}),
-              }),
-              10000,
-            ).catch(() => null)
-          }
           if (shot?.base64) {
             contextFiles = [
               {
                 mime: 'image/png',
-                filename: 'page-full.png',
+                filename: 'page.png',
                 dataUrl: `data:image/png;base64,${shot.base64}`,
               },
             ]

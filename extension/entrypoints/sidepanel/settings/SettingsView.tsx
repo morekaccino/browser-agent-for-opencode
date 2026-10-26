@@ -368,14 +368,14 @@ export function SettingsView({
                 />
                 <p className="settings-hint">
                   Hook captures new logs without keeping the debugger attached. Debugger keeps full DevTools fidelity
-                  and shows a debugging banner.
+                  but keeps the “started debugging” banner attached; choose Hook to avoid it.
                 </p>
               </div>
               <Switch
                 checked={includeContext}
                 onCheckedChange={onIncludeContextChange}
                 label="Send page context by default"
-                supporting="Include this window's tab titles and URLs, an active-tab snapshot, and a full-page screenshot when the model supports images."
+                supporting="Include this window's tab titles and URLs, an active-tab snapshot, and a viewport screenshot when the model supports images."
               />
               <Switch
                 checked={followAgent}
